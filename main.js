@@ -92,7 +92,7 @@ let showUpgradeMenu = false;
 // Player upgrades
 let bulletDamage = 1;
 let bulletSpeedMultiplier = 1;
-let maxBounces = 3; // How many bounces before bullet disappears
+let maxBounces = 0; // Starts at 0 - only gets bounces from upgrades
 
 // Game objects
 const player = {
@@ -184,7 +184,7 @@ function initGame() {
   level = 1;
   bulletDamage = 1;
   bulletSpeedMultiplier = 1;
-  maxBounces = 3;
+  maxBounces = 0; // Start with 0 bounces - must upgrade to get bounces
   bullets.length = 0;
   blocks.length = 0;
   currentBlockSpeed = BLOCK_SPEED;
@@ -198,12 +198,13 @@ function initGame() {
   console.log('🎮 Game initialized!');
   console.log('📱 iOS safe areas respected - optimized for notch and home bar');
   console.log('🎯 Drag to aim and shoot continuously - large arrow shows direction!');
-  console.log('🔫 Bullets reflect infinitely on walls, limited bounces on enemies!');
-  console.log('🧱 Wall reflections (all 4 sides) do NOT count as bounces!');
+  console.log('🔫 Bullets start with 0 bounces - disappear on first wall/enemy hit!');
+  console.log('⭐ Upgrade bounce to make bullets reflect on walls and enemies');
+  console.log('🧱 ALL bounces (walls + enemies) consume bullet life');
   console.log('⚫ Enemy HP scales with level: 5, 10, 15, 20...');
   console.log('💥 Random ricochet angles off circles!');
   console.log('📊 Kill enemies to fill progress bar and level up!');
-  console.log('⭐ Choose upgrades: Bounce, Speed (+2%), or Damage');
+  console.log('💪 Choose upgrades: Bounce, Speed (+2%), or Damage');
   console.log('💀 Elite enemies spawn when you level up!');
 
   requestAnimationFrame(gameLoop);
@@ -484,20 +485,26 @@ function update() {
     bullet.x += bullet.vx;
     bullet.y += bullet.vy;
 
-    // Wall bouncing (left, right, top, bottom) - does NOT count as bounce
+    // Wall bouncing (left, right, top, bottom) - COUNTS as bounce
+    let bounced = false;
+
     // Left and right walls
     if (bullet.x <= 0 || bullet.x + bullet.width >= rect.width) {
       bullet.vx = -bullet.vx;
       bullet.x = Math.max(0, Math.min(rect.width - bullet.width, bullet.x));
+      bullet.bounces++;
+      bounced = true;
     }
 
     // Top and bottom walls
     if (bullet.y <= 0 || bullet.y + bullet.height >= rect.height) {
       bullet.vy = -bullet.vy;
       bullet.y = Math.max(0, Math.min(rect.height - bullet.height, bullet.y));
+      bullet.bounces++;
+      bounced = true;
     }
 
-    // Remove bullets only if they exceed max bounces (from enemy collisions)
+    // Remove bullets that exceed max bounces or go off screen
     if (bullet.bounces > maxBounces) {
       bullets.splice(i, 1);
     }

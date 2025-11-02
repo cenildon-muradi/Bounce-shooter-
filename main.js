@@ -197,8 +197,9 @@ function initGame() {
 
   console.log('🎮 Game initialized!');
   console.log('📱 iOS safe areas respected - optimized for notch and home bar');
-  console.log('🎯 Drag to aim and shoot continuously!');
-  console.log('🔫 Bullets ricochet up to 3 times - change direction on the fly!');
+  console.log('🎯 Drag to aim and shoot continuously - large arrow shows direction!');
+  console.log('🔫 Bullets reflect infinitely on walls, limited bounces on enemies!');
+  console.log('🧱 Wall reflections (all 4 sides) do NOT count as bounces!');
   console.log('⚫ Enemy HP scales with level: 5, 10, 15, 20...');
   console.log('💥 Random ricochet angles off circles!');
   console.log('📊 Kill enemies to fill progress bar and level up!');
@@ -483,15 +484,21 @@ function update() {
     bullet.x += bullet.vx;
     bullet.y += bullet.vy;
 
-    // Wall bouncing (left and right)
+    // Wall bouncing (left, right, top, bottom) - does NOT count as bounce
+    // Left and right walls
     if (bullet.x <= 0 || bullet.x + bullet.width >= rect.width) {
       bullet.vx = -bullet.vx;
       bullet.x = Math.max(0, Math.min(rect.width - bullet.width, bullet.x));
-      bullet.bounces++;
     }
 
-    // Remove bullets that exceed max bounces or go off screen top/bottom
-    if (bullet.bounces > maxBounces || bullet.y + bullet.height < 0 || bullet.y > rect.height) {
+    // Top and bottom walls
+    if (bullet.y <= 0 || bullet.y + bullet.height >= rect.height) {
+      bullet.vy = -bullet.vy;
+      bullet.y = Math.max(0, Math.min(rect.height - bullet.height, bullet.y));
+    }
+
+    // Remove bullets only if they exceed max bounces (from enemy collisions)
+    if (bullet.bounces > maxBounces) {
       bullets.splice(i, 1);
     }
   }
@@ -662,26 +669,25 @@ function render() {
       const playerCenterX = player.x + player.width / 2;
       const playerCenterY = player.y + player.height / 2;
 
-      // Draw line from player to aim direction
-      const maxLineLength = 150;
-      const lineLength = Math.min(distance, maxLineLength);
+      // Fixed large arrow size
+      const lineLength = 250; // Fixed length, always large
       const dirX = dx / distance;
       const dirY = dy / distance;
       const endX = playerCenterX + dirX * lineLength;
       const endY = playerCenterY + dirY * lineLength;
 
-      // Draw arrow line
+      // Draw arrow line (thicker and more visible)
       ctx.strokeStyle = '#f39c12';
-      ctx.lineWidth = 4;
-      ctx.setLineDash([5, 5]);
+      ctx.lineWidth = 6;
+      ctx.setLineDash([8, 8]);
       ctx.beginPath();
       ctx.moveTo(playerCenterX, playerCenterY);
       ctx.lineTo(endX, endY);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Draw arrow head
-      const arrowSize = 15;
+      // Draw large arrow head
+      const arrowSize = 25; // Larger arrow
       const angle = Math.atan2(dirY, dirX);
       ctx.fillStyle = '#f39c12';
       ctx.beginPath();
@@ -697,12 +703,11 @@ function render() {
       ctx.closePath();
       ctx.fill();
 
-      // Draw power indicator
-      const power = Math.min(100, (distance / 2));
-      ctx.fillStyle = '#f39c12';
-      ctx.font = 'bold 16px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${Math.round(power)}%`, playerCenterX, playerCenterY - 30);
+      // Draw glow around arrow head for better visibility
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = '#f39c12';
+      ctx.fill();
+      ctx.shadowBlur = 0;
     }
   }
 

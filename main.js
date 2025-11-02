@@ -66,7 +66,7 @@ let showUpgradeMenu = false;
 // Player upgrades
 let bulletDamage = 1;
 let bulletSpeedMultiplier = 1;
-let extraProjectiles = 0; // 0 = single shot, 1 = double, 2 = triple, etc.
+let maxBounces = 3; // How many bounces before bullet disappears
 
 // Game objects
 const player = {
@@ -94,7 +94,6 @@ const BASE_BULLET_SPEED = 7;
 const BULLET_WIDTH = 6;
 const BULLET_HEIGHT = 6;
 const BULLET_COOLDOWN = 150; // ms between shots (reduced for continuous shooting)
-const MAX_BOUNCES = 3;
 let lastShot = 0;
 
 // Block sizes and HP (now circles with radius)
@@ -156,7 +155,7 @@ function initGame() {
   level = 1;
   bulletDamage = 1;
   bulletSpeedMultiplier = 1;
-  extraProjectiles = 0;
+  maxBounces = 3;
   bullets.length = 0;
   blocks.length = 0;
   currentBlockSpeed = BLOCK_SPEED;
@@ -170,10 +169,10 @@ function initGame() {
   console.log('🎮 Game initialized!');
   console.log('🎯 Drag to aim and shoot continuously!');
   console.log('🔫 Bullets ricochet up to 3 times - change direction on the fly!');
-  console.log('⚫ Circles: Large (HP:3) → Medium (HP:2) → Small (HP:1)');
+  console.log('⚫ Enemy HP scales with level: 5, 10, 15, 20...');
   console.log('💥 Random ricochet angles off circles!');
   console.log('📊 Kill enemies to fill progress bar and level up!');
-  console.log('⭐ Choose upgrades: Damage, Speed, or Extra Projectiles');
+  console.log('⭐ Choose upgrades: Bounce, Speed (+2%), or Damage');
   console.log('💀 Elite enemies spawn when you level up!');
 
   requestAnimationFrame(gameLoop);
@@ -271,34 +270,17 @@ function shootBulletInDirection() {
   const dirX = dx / distance;
   const dirY = dy / distance;
 
-  const numProjectiles = 1 + extraProjectiles;
-
-  // Shoot multiple projectiles
-  for (let i = 0; i < numProjectiles; i++) {
-    // For multiple projectiles, spread them in a cone
-    let finalDirX = dirX;
-    let finalDirY = dirY;
-
-    if (numProjectiles > 1) {
-      const spreadAngle = (i - (numProjectiles - 1) / 2) * 0.2; // Spread angle in radians
-      const angle = Math.atan2(dirY, dirX) + spreadAngle;
-      finalDirX = Math.cos(angle);
-      finalDirY = Math.sin(angle);
-    }
-
-    bullets.push({
-      x: playerCenterX - BULLET_WIDTH / 2,
-      y: playerCenterY - BULLET_HEIGHT / 2,
-      width: BULLET_WIDTH,
-      height: BULLET_HEIGHT,
-      vx: finalDirX * bulletSpeed,
-      vy: finalDirY * bulletSpeed,
-      bounces: 0,
-      damage: bulletDamage
-    });
-  }
-
-  console.log(`🎯 Shot at direction: (${dirX.toFixed(2)}, ${dirY.toFixed(2)})`);
+  // Shoot single projectile
+  bullets.push({
+    x: playerCenterX - BULLET_WIDTH / 2,
+    y: playerCenterY - BULLET_HEIGHT / 2,
+    width: BULLET_WIDTH,
+    height: BULLET_HEIGHT,
+    vx: dirX * bulletSpeed,
+    vy: dirY * bulletSpeed,
+    bounces: 0,
+    damage: bulletDamage
+  });
 }
 
 // Spawn a block (circle)
@@ -314,13 +296,16 @@ function spawnBlock() {
   const margin = size.radius;
   const maxX = rect.width - margin * 2;
 
+  // HP scales with level: 5, 10, 15, 20, etc.
+  const hp = level * 5;
+
   blocks.push({
     x: margin + Math.random() * maxX,
     y: -size.radius,
     radius: size.radius,
     color: size.color,
-    hp: size.hp,
-    maxHp: size.hp,
+    hp: hp,
+    maxHp: hp,
     size: 'LARGE',
     isElite: false,
     speed: currentBlockSpeed
@@ -333,8 +318,8 @@ function spawnBlock() {
       y: -size.radius - 100,
       radius: size.radius,
       color: size.color,
-      hp: size.hp,
-      maxHp: size.hp,
+      hp: hp,
+      maxHp: hp,
       size: 'LARGE',
       isElite: false,
       speed: currentBlockSpeed
@@ -345,9 +330,11 @@ function spawnBlock() {
 // Spawn an elite block with extra HP
 function spawnEliteBlock() {
   const rect = canvas.getBoundingClientRect();
-  const extraHP = level * 4; // Each level adds +4 HP to elite (increased difficulty)
   const baseSize = BLOCK_SIZES.LARGE;
   const eliteRadius = baseSize.radius + level * 5; // Grows with level
+
+  // Elite HP: 10x level (double normal blocks)
+  const eliteHP = level * 10;
 
   const margin = eliteRadius;
   const maxX = rect.width - margin * 2;
@@ -357,14 +344,14 @@ function spawnEliteBlock() {
     y: -eliteRadius,
     radius: eliteRadius,
     color: '#9b59b6', // Purple for elite
-    hp: baseSize.hp + extraHP,
-    maxHp: baseSize.hp + extraHP,
+    hp: eliteHP,
+    maxHp: eliteHP,
     size: 'ELITE',
     isElite: true,
     speed: currentBlockSpeed * 0.8 // Elites move slightly slower but tankier
   });
 
-  console.log(`💀 Elite spawned! HP: ${baseSize.hp + extraHP}, Level: ${level}`);
+  console.log(`💀 Elite spawned! HP: ${eliteHP}, Level: ${level}`);
 }
 
 // Split block into smaller blocks
@@ -378,13 +365,16 @@ function splitBlock(block) {
   // Create two smaller circles at slight offset
   const offset = sizeConfig.radius;
 
+  // Split HP: half of parent HP (rounded up)
+  const splitHP = Math.ceil(block.maxHp / 2);
+
   blocks.push({
     x: block.x - offset,
     y: block.y,
     radius: sizeConfig.radius,
     color: sizeConfig.color,
-    hp: sizeConfig.hp,
-    maxHp: sizeConfig.hp,
+    hp: splitHP,
+    maxHp: splitHP,
     size: newSize,
     isElite: false,
     speed: block.speed // Inherit parent speed
@@ -395,8 +385,8 @@ function splitBlock(block) {
     y: block.y,
     radius: sizeConfig.radius,
     color: sizeConfig.color,
-    hp: sizeConfig.hp,
-    maxHp: sizeConfig.hp,
+    hp: splitHP,
+    maxHp: splitHP,
     size: newSize,
     isElite: false,
     speed: block.speed // Inherit parent speed
@@ -431,11 +421,11 @@ function applyUpgrade(upgradeType) {
     bulletDamage++;
     console.log(`⚔️ Damage upgraded to ${bulletDamage}`);
   } else if (upgradeType === 'speed') {
-    bulletSpeedMultiplier += 0.3;
-    console.log(`⚡ Speed upgraded to ${bulletSpeedMultiplier.toFixed(1)}x`);
-  } else if (upgradeType === 'projectiles') {
-    extraProjectiles++;
-    console.log(`🔫 Extra projectiles: ${extraProjectiles + 1} total`);
+    bulletSpeedMultiplier += 0.02;
+    console.log(`⚡ Speed upgraded to ${(bulletSpeedMultiplier * 100).toFixed(0)}%`);
+  } else if (upgradeType === 'bounce') {
+    maxBounces++;
+    console.log(`🎾 Max bounces upgraded to ${maxBounces}`);
   }
 
   showUpgradeMenu = false;
@@ -471,7 +461,7 @@ function update() {
     }
 
     // Remove bullets that exceed max bounces or go off screen top/bottom
-    if (bullet.bounces > MAX_BOUNCES || bullet.y + bullet.height < 0 || bullet.y > rect.height) {
+    if (bullet.bounces > maxBounces || bullet.y + bullet.height < 0 || bullet.y > rect.height) {
       bullets.splice(i, 1);
     }
   }
@@ -544,7 +534,7 @@ function update() {
         }
 
         // Remove bullet if max bounces exceeded
-        if (bullet.bounces > MAX_BOUNCES) {
+        if (bullet.bounces > maxBounces) {
           bullets.splice(i, 1);
         }
 
@@ -741,9 +731,9 @@ function render() {
     const spacing = 90;
 
     const upgrades = [
-      { type: 'damage', label: '⚔️ +1 Damage', desc: `Current: ${bulletDamage}` },
-      { type: 'speed', label: '⚡ +30% Speed', desc: `Current: ${bulletSpeedMultiplier.toFixed(1)}x` },
-      { type: 'projectiles', label: '🔫 +1 Projectile', desc: `Current: ${extraProjectiles + 1}` }
+      { type: 'bounce', label: '🎾 +1 Bounce', desc: `Current: ${maxBounces} bounces` },
+      { type: 'speed', label: '⚡ +2% Speed', desc: `Current: ${(bulletSpeedMultiplier * 100).toFixed(0)}%` },
+      { type: 'damage', label: '⚔️ +1 Damage', desc: `Current: ${bulletDamage}` }
     ];
 
     upgrades.forEach((upgrade, i) => {

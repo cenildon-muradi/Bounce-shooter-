@@ -54,7 +54,19 @@ const ctx = canvas.getContext('2d');
 let width, height;
 let gameRunning = false;
 let gameOver = false;
+let gamePaused = false;
 let score = 0;
+
+// Progression system
+let kills = 0;
+let requiredKills = 10;
+let level = 1;
+let showUpgradeMenu = false;
+
+// Player upgrades
+let bulletDamage = 1;
+let bulletSpeedMultiplier = 1;
+let extraProjectiles = 0; // 0 = single shot, 1 = double, 2 = triple, etc.
 
 // Game objects
 const player = {
@@ -71,7 +83,7 @@ const bullets = [];
 const blocks = [];
 
 // Game config
-const BULLET_SPEED = 7;
+const BASE_BULLET_SPEED = 7;
 const BULLET_WIDTH = 6;
 const BULLET_HEIGHT = 6;
 const BULLET_COOLDOWN = 300; // ms between shots
@@ -127,7 +139,15 @@ function initGame() {
 
   gameRunning = true;
   gameOver = false;
+  gamePaused = false;
+  showUpgradeMenu = false;
   score = 0;
+  kills = 0;
+  requiredKills = 10;
+  level = 1;
+  bulletDamage = 1;
+  bulletSpeedMultiplier = 1;
+  extraProjectiles = 0;
   bullets.length = 0;
   blocks.length = 0;
 
@@ -136,6 +156,9 @@ function initGame() {
   console.log('🔫 Auto-shoots bullets that ricochet up to 3 times');
   console.log('⚫ Circles: Large (HP:3) → Medium (HP:2) → Small (HP:1)');
   console.log('💥 Random ricochet angles off circles!');
+  console.log('📊 Kill enemies to fill progress bar and level up!');
+  console.log('⭐ Choose upgrades: Damage, Speed, or Extra Projectiles');
+  console.log('💀 Elite enemies spawn when you level up!');
 
   requestAnimationFrame(gameLoop);
 }
@@ -197,15 +220,24 @@ function shootBullet() {
   if (now - lastShot < BULLET_COOLDOWN) return;
 
   lastShot = now;
-  bullets.push({
-    x: player.x + player.width / 2 - BULLET_WIDTH / 2,
-    y: player.y,
-    width: BULLET_WIDTH,
-    height: BULLET_HEIGHT,
-    vx: 0, // horizontal velocity
-    vy: -BULLET_SPEED, // vertical velocity (up)
-    bounces: 0
-  });
+  const bulletSpeed = BASE_BULLET_SPEED * bulletSpeedMultiplier;
+  const numProjectiles = 1 + extraProjectiles;
+
+  // Shoot multiple projectiles
+  for (let i = 0; i < numProjectiles; i++) {
+    const offsetX = numProjectiles > 1 ? (i - (numProjectiles - 1) / 2) * 15 : 0;
+
+    bullets.push({
+      x: player.x + player.width / 2 - BULLET_WIDTH / 2 + offsetX,
+      y: player.y,
+      width: BULLET_WIDTH,
+      height: BULLET_HEIGHT,
+      vx: 0, // horizontal velocity
+      vy: -bulletSpeed, // vertical velocity (up)
+      bounces: 0,
+      damage: bulletDamage
+    });
+  }
 }
 
 // Spawn a block (circle)
@@ -228,12 +260,40 @@ function spawnBlock() {
     color: size.color,
     hp: size.hp,
     maxHp: size.hp,
-    size: 'LARGE'
+    size: 'LARGE',
+    isElite: false
   });
+}
+
+// Spawn an elite block with extra HP
+function spawnEliteBlock() {
+  const rect = canvas.getBoundingClientRect();
+  const extraHP = level; // Each level adds +1 HP to elite
+  const baseSize = BLOCK_SIZES.LARGE;
+  const eliteRadius = baseSize.radius + level * 5; // Grows with level
+
+  const margin = eliteRadius;
+  const maxX = rect.width - margin * 2;
+
+  blocks.push({
+    x: margin + Math.random() * maxX,
+    y: -eliteRadius,
+    radius: eliteRadius,
+    color: '#9b59b6', // Purple for elite
+    hp: baseSize.hp + extraHP,
+    maxHp: baseSize.hp + extraHP,
+    size: 'ELITE',
+    isElite: true
+  });
+
+  console.log(`💀 Elite spawned! HP: ${baseSize.hp + extraHP}, Level: ${level}`);
 }
 
 // Split block into smaller blocks
 function splitBlock(block) {
+  // Elite blocks don't split
+  if (block.isElite) return;
+
   const newSize = block.size === 'LARGE' ? 'MEDIUM' : 'SMALL';
   const sizeConfig = BLOCK_SIZES[newSize];
 
@@ -247,7 +307,8 @@ function splitBlock(block) {
     color: sizeConfig.color,
     hp: sizeConfig.hp,
     maxHp: sizeConfig.hp,
-    size: newSize
+    size: newSize,
+    isElite: false
   });
 
   blocks.push({
@@ -257,13 +318,45 @@ function splitBlock(block) {
     color: sizeConfig.color,
     hp: sizeConfig.hp,
     maxHp: sizeConfig.hp,
-    size: newSize
+    size: newSize,
+    isElite: false
   });
+}
+
+// Level up and show upgrade menu
+function levelUp() {
+  level++;
+  requiredKills += 5;
+  kills = 0;
+  gamePaused = true;
+  showUpgradeMenu = true;
+
+  // Spawn elite enemy
+  spawnEliteBlock();
+
+  console.log(`🎉 Level ${level}! Next goal: ${requiredKills} kills`);
+}
+
+// Apply upgrade
+function applyUpgrade(upgradeType) {
+  if (upgradeType === 'damage') {
+    bulletDamage++;
+    console.log(`⚔️ Damage upgraded to ${bulletDamage}`);
+  } else if (upgradeType === 'speed') {
+    bulletSpeedMultiplier += 0.3;
+    console.log(`⚡ Speed upgraded to ${bulletSpeedMultiplier.toFixed(1)}x`);
+  } else if (upgradeType === 'projectiles') {
+    extraProjectiles++;
+    console.log(`🔫 Extra projectiles: ${extraProjectiles + 1} total`);
+  }
+
+  showUpgradeMenu = false;
+  gamePaused = false;
 }
 
 // Update game state
 function update() {
-  if (gameOver) return;
+  if (gameOver || gamePaused) return;
 
   const rect = canvas.getBoundingClientRect();
 
@@ -316,8 +409,8 @@ function update() {
       const block = blocks[j];
 
       if (checkCircleCollision(bullet, block)) {
-        // Reduce block HP
-        block.hp--;
+        // Reduce block HP by bullet damage
+        block.hp -= bullet.damage;
 
         // Calculate random ricochet angle
         const randomAngle = (Math.random() - 0.5) * Math.PI; // Random angle between -90° and +90°
@@ -334,13 +427,30 @@ function update() {
           // Remove block
           blocks.splice(j, 1);
 
-          // Split into smaller blocks if not SMALL
-          if (block.size !== 'SMALL') {
+          // Only count kills for blocks that don't split
+          const countsAsKill = block.size === 'SMALL' || block.isElite;
+
+          if (countsAsKill) {
+            kills++;
+            console.log(`💥 Kill! ${kills}/${requiredKills}`);
+
+            // Check for level up
+            if (kills >= requiredKills) {
+              levelUp();
+            }
+          }
+
+          // Split into smaller blocks if not SMALL and not ELITE
+          if (block.size !== 'SMALL' && !block.isElite) {
             splitBlock(block);
           }
 
           // Award points
-          score += block.size === 'LARGE' ? 30 : block.size === 'MEDIUM' ? 20 : 10;
+          if (block.isElite) {
+            score += 100;
+          } else {
+            score += block.size === 'LARGE' ? 30 : block.size === 'MEDIUM' ? 20 : 10;
+          }
         }
 
         // Remove bullet if max bounces exceeded
@@ -409,10 +519,20 @@ function render() {
     ctx.arc(block.x, block.y, block.radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Circle border
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    // Elite glow effect
+    if (block.isElite) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.strokeStyle = block.color;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    } else {
+      // Circle border
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
 
     // Draw HP number
     ctx.fillStyle = '#ffffff';
@@ -422,11 +542,95 @@ function render() {
     ctx.fillText(block.hp, block.x, block.y);
   });
 
+  // Draw progress bar at top
+  const barHeight = 30;
+  const barPadding = 10;
+  const barWidth = rect.width - barPadding * 2;
+  const barY = 10;
+
+  // Background
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillRect(barPadding, barY, barWidth, barHeight);
+
+  // Progress fill
+  const progress = kills / requiredKills;
+  ctx.fillStyle = '#2ecc71';
+  ctx.fillRect(barPadding, barY, barWidth * progress, barHeight);
+
+  // Border
+  ctx.strokeStyle = '#ecf0f1';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(barPadding, barY, barWidth, barHeight);
+
+  // Text
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 16px system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${kills}/${requiredKills} - Level ${level}`, rect.width / 2, barY + barHeight / 2);
+
   // Draw score
   ctx.fillStyle = '#ecf0f1';
-  ctx.font = 'bold 24px system-ui';
+  ctx.font = 'bold 20px system-ui';
   ctx.textAlign = 'left';
-  ctx.fillText(`Score: ${score}`, 20, 40);
+  ctx.fillText(`Score: ${score}`, 20, barY + barHeight + 30);
+
+  // Draw upgrade menu
+  if (showUpgradeMenu) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(0, 0, rect.width, rect.height);
+
+    ctx.fillStyle = '#f39c12';
+    ctx.font = 'bold 36px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(`LEVEL ${level}!`, rect.width / 2, 80);
+
+    ctx.fillStyle = '#ecf0f1';
+    ctx.font = '20px system-ui';
+    ctx.fillText('Choose an upgrade:', rect.width / 2, 130);
+
+    // Draw upgrade buttons
+    const buttonWidth = Math.min(250, rect.width - 40);
+    const buttonHeight = 70;
+    const buttonX = rect.width / 2 - buttonWidth / 2;
+    const startY = 180;
+    const spacing = 90;
+
+    const upgrades = [
+      { type: 'damage', label: '⚔️ +1 Damage', desc: `Current: ${bulletDamage}` },
+      { type: 'speed', label: '⚡ +30% Speed', desc: `Current: ${bulletSpeedMultiplier.toFixed(1)}x` },
+      { type: 'projectiles', label: '🔫 +1 Projectile', desc: `Current: ${extraProjectiles + 1}` }
+    ];
+
+    upgrades.forEach((upgrade, i) => {
+      const y = startY + i * spacing;
+
+      // Button background
+      ctx.fillStyle = '#2c3e50';
+      ctx.fillRect(buttonX, y, buttonWidth, buttonHeight);
+
+      // Button border
+      ctx.strokeStyle = '#3498db';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(buttonX, y, buttonWidth, buttonHeight);
+
+      // Button text
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 20px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(upgrade.label, rect.width / 2, y + 25);
+
+      ctx.fillStyle = '#bdc3c7';
+      ctx.font = '16px system-ui';
+      ctx.fillText(upgrade.desc, rect.width / 2, y + 50);
+
+      // Store button position for click detection
+      upgrade.bounds = { x: buttonX, y, width: buttonWidth, height: buttonHeight };
+    });
+
+    // Store upgrades for click handler
+    canvas.upgradeButtons = upgrades;
+  }
 
   // Draw game over
   if (gameOver) {
@@ -457,12 +661,45 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
-// Restart game on tap when game over
-canvas.addEventListener('click', () => {
+// Handle clicks for game over restart and upgrade menu
+canvas.addEventListener('click', (e) => {
   if (gameOver) {
     initGame();
+    return;
+  }
+
+  // Handle upgrade menu clicks
+  if (showUpgradeMenu && canvas.upgradeButtons) {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    canvas.upgradeButtons.forEach(upgrade => {
+      const b = upgrade.bounds;
+      if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) {
+        applyUpgrade(upgrade.type);
+      }
+    });
   }
 });
+
+// Handle touch for upgrade menu (mobile)
+canvas.addEventListener('touchstart', (e) => {
+  if (showUpgradeMenu && canvas.upgradeButtons) {
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+
+    canvas.upgradeButtons.forEach(upgrade => {
+      const b = upgrade.bounds;
+      if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) {
+        applyUpgrade(upgrade.type);
+        e.preventDefault();
+      }
+    });
+  }
+}, { passive: false });
 
 // ============================================
 // INITIALIZATION

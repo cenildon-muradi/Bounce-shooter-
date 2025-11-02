@@ -268,7 +268,7 @@ function spawnBlock() {
 // Spawn an elite block with extra HP
 function spawnEliteBlock() {
   const rect = canvas.getBoundingClientRect();
-  const extraHP = level; // Each level adds +1 HP to elite
+  const extraHP = level * 4; // Each level adds +4 HP to elite (increased difficulty)
   const baseSize = BLOCK_SIZES.LARGE;
   const eliteRadius = baseSize.radius + level * 5; // Grows with level
 

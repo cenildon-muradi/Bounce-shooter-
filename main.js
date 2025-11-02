@@ -83,7 +83,7 @@ const bullets = [];
 const blocks = [];
 
 // Game config
-const BASE_BULLET_SPEED = 7;
+const BASE_BULLET_SPEED = 3.5;
 const BULLET_WIDTH = 6;
 const BULLET_HEIGHT = 6;
 const BULLET_COOLDOWN = 300; // ms between shots

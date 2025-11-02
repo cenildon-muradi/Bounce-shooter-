@@ -60,9 +60,9 @@ let score = 0;
 const player = {
   x: 0,
   y: 0,
-  width: 60,
-  height: 40,
-  speed: 5,
+  width: 80,
+  height: 20,
+  speed: 6,
   moveLeft: false,
   moveRight: false
 };
@@ -71,27 +71,23 @@ const bullets = [];
 const blocks = [];
 
 // Game config
-const BULLET_SPEED = 8;
-const BULLET_WIDTH = 4;
-const BULLET_HEIGHT = 15;
-const BULLET_COOLDOWN = 250; // ms between shots
+const BULLET_SPEED = 7;
+const BULLET_WIDTH = 6;
+const BULLET_HEIGHT = 6;
+const BULLET_COOLDOWN = 300; // ms between shots
+const MAX_BOUNCES = 3;
 let lastShot = 0;
 
-const BLOCK_WIDTH = 50;
-const BLOCK_HEIGHT = 30;
-const BLOCK_SPEED = 0.5;
-const BLOCK_SPAWN_INTERVAL = 1500; // ms between block spawns
-let lastBlockSpawn = 0;
+// Block sizes and HP
+const BLOCK_SIZES = {
+  LARGE: { width: 80, height: 60, hp: 3, color: '#e74c3c' },
+  MEDIUM: { width: 60, height: 45, hp: 2, color: '#3498db' },
+  SMALL: { width: 40, height: 30, hp: 1, color: '#2ecc71' }
+};
 
-// Colors for blocks
-const BLOCK_COLORS = [
-  '#e74c3c', // red
-  '#3498db', // blue
-  '#2ecc71', // green
-  '#f39c12', // orange
-  '#9b59b6', // purple
-  '#1abc9c', // turquoise
-];
+const BLOCK_SPEED = 0.4;
+const BLOCK_SPAWN_INTERVAL = 2000; // ms between block spawns
+let lastBlockSpawn = 0;
 
 // Setup canvas size
 function resizeCanvas() {
@@ -133,8 +129,10 @@ function initGame() {
   blocks.length = 0;
 
   console.log('🎮 Game initialized!');
-  console.log('📱 Touch left side to move left, right side to move right');
-  console.log('🔫 Player shoots automatically');
+  console.log('📱 Touch left/right side to move platform');
+  console.log('🔫 Auto-shoots bullets that ricochet up to 3 times');
+  console.log('🧱 Large blocks (HP:3) → Medium (HP:2) → Small (HP:1)');
+  console.log('💥 Bullets bounce off walls and blocks!');
 
   requestAnimationFrame(gameLoop);
 }
@@ -195,7 +193,10 @@ function shootBullet() {
     x: player.x + player.width / 2 - BULLET_WIDTH / 2,
     y: player.y,
     width: BULLET_WIDTH,
-    height: BULLET_HEIGHT
+    height: BULLET_HEIGHT,
+    vx: 0, // horizontal velocity
+    vy: -BULLET_SPEED, // vertical velocity (up)
+    bounces: 0
   });
 }
 
@@ -206,15 +207,51 @@ function spawnBlock() {
 
   lastBlockSpawn = now;
   const rect = canvas.getBoundingClientRect();
-  const maxX = rect.width - BLOCK_WIDTH;
+
+  // Start with large blocks
+  const size = BLOCK_SIZES.LARGE;
+  const maxX = rect.width - size.width;
 
   blocks.push({
     x: Math.random() * maxX,
-    y: -BLOCK_HEIGHT,
-    width: BLOCK_WIDTH,
-    height: BLOCK_HEIGHT,
-    color: BLOCK_COLORS[Math.floor(Math.random() * BLOCK_COLORS.length)],
-    hp: 1
+    y: -size.height,
+    width: size.width,
+    height: size.height,
+    color: size.color,
+    hp: size.hp,
+    maxHp: size.hp,
+    size: 'LARGE'
+  });
+}
+
+// Split block into smaller blocks
+function splitBlock(block) {
+  const newSize = block.size === 'LARGE' ? 'MEDIUM' : 'SMALL';
+  const sizeConfig = BLOCK_SIZES[newSize];
+
+  // Create two smaller blocks
+  const offset = sizeConfig.width / 2;
+
+  blocks.push({
+    x: block.x - offset / 2,
+    y: block.y,
+    width: sizeConfig.width,
+    height: sizeConfig.height,
+    color: sizeConfig.color,
+    hp: sizeConfig.hp,
+    maxHp: sizeConfig.hp,
+    size: newSize
+  });
+
+  blocks.push({
+    x: block.x + block.width / 2 + offset / 2,
+    y: block.y,
+    width: sizeConfig.width,
+    height: sizeConfig.height,
+    color: sizeConfig.color,
+    hp: sizeConfig.hp,
+    maxHp: sizeConfig.hp,
+    size: newSize
   });
 }
 
@@ -240,10 +277,20 @@ function update() {
 
   // Update bullets
   for (let i = bullets.length - 1; i >= 0; i--) {
-    bullets[i].y -= BULLET_SPEED;
+    const bullet = bullets[i];
 
-    // Remove bullets that go off screen
-    if (bullets[i].y + bullets[i].height < 0) {
+    bullet.x += bullet.vx;
+    bullet.y += bullet.vy;
+
+    // Wall bouncing (left and right)
+    if (bullet.x <= 0 || bullet.x + bullet.width >= rect.width) {
+      bullet.vx = -bullet.vx;
+      bullet.x = Math.max(0, Math.min(rect.width - bullet.width, bullet.x));
+      bullet.bounces++;
+    }
+
+    // Remove bullets that exceed max bounces or go off screen top/bottom
+    if (bullet.bounces > MAX_BOUNCES || bullet.y + bullet.height < 0 || bullet.y > rect.height) {
       bullets.splice(i, 1);
     }
   }
@@ -263,15 +310,38 @@ function update() {
   // Check collisions
   for (let i = bullets.length - 1; i >= 0; i--) {
     const bullet = bullets[i];
+    if (!bullet) continue;
 
     for (let j = blocks.length - 1; j >= 0; j--) {
       const block = blocks[j];
 
       if (checkCollision(bullet, block)) {
-        // Remove bullet and block
-        bullets.splice(i, 1);
-        blocks.splice(j, 1);
-        score += 10;
+        // Reduce block HP
+        block.hp--;
+
+        // Bullet bounces off block
+        bullet.vy = -bullet.vy;
+        bullet.bounces++;
+
+        // If block HP is 0
+        if (block.hp <= 0) {
+          // Remove block
+          blocks.splice(j, 1);
+
+          // Split into smaller blocks if not SMALL
+          if (block.size !== 'SMALL') {
+            splitBlock(block);
+          }
+
+          // Award points
+          score += block.size === 'LARGE' ? 30 : block.size === 'MEDIUM' ? 20 : 10;
+        }
+
+        // Remove bullet if max bounces exceeded
+        if (bullet.bounces > MAX_BOUNCES) {
+          bullets.splice(i, 1);
+        }
+
         break;
       }
     }
@@ -293,23 +363,31 @@ function render() {
   // Clear canvas
   ctx.clearRect(0, 0, rect.width, rect.height);
 
-  // Draw player (spaceship-like)
+  // Draw player (platform/cube)
   ctx.fillStyle = '#3498db';
-  ctx.beginPath();
-  ctx.moveTo(player.x + player.width / 2, player.y);
-  ctx.lineTo(player.x + player.width, player.y + player.height);
-  ctx.lineTo(player.x, player.y + player.height);
-  ctx.closePath();
-  ctx.fill();
+  ctx.fillRect(player.x, player.y, player.width, player.height);
 
-  // Draw player body
-  ctx.fillStyle = '#2980b9';
-  ctx.fillRect(player.x + player.width / 3, player.y + player.height / 2, player.width / 3, player.height / 2);
+  // Platform top highlight
+  ctx.fillStyle = '#5dade2';
+  ctx.fillRect(player.x, player.y, player.width, player.height / 3);
 
-  // Draw bullets
-  ctx.fillStyle = '#f39c12';
+  // Platform border
+  ctx.strokeStyle = '#2980b9';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(player.x, player.y, player.width, player.height);
+
+  // Draw bullets as circles
   bullets.forEach(bullet => {
-    ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+    const radius = bullet.width / 2;
+    ctx.fillStyle = '#f39c12';
+    ctx.beginPath();
+    ctx.arc(bullet.x + radius, bullet.y + radius, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Bullet glow
+    ctx.strokeStyle = '#f1c40f';
+    ctx.lineWidth = 2;
+    ctx.stroke();
   });
 
   // Draw blocks
@@ -321,6 +399,13 @@ function render() {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 2;
     ctx.strokeRect(block.x, block.y, block.width, block.height);
+
+    // Draw HP number
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${block.height * 0.5}px system-ui`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(block.hp, block.x + block.width / 2, block.y + block.height / 2);
   });
 
   // Draw score

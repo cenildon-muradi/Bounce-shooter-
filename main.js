@@ -112,6 +112,10 @@ let aimCurrentX = 0;
 let aimCurrentY = 0;
 let isAiming = false;
 
+// Last known shooting direction (defaults to straight up)
+let lastDirX = 0;
+let lastDirY = -1;
+
 const bullets = [];
 const blocks = [];
 
@@ -130,7 +134,7 @@ const BLOCK_SIZES = {
 };
 
 const BLOCK_SPEED = 0.4;
-const BLOCK_SPAWN_INTERVAL = 2000; // ms between block spawns
+const BLOCK_SPAWN_INTERVAL = 4000; // ms between block spawns (doubled from 2000 for half the enemies)
 let lastBlockSpawn = 0;
 let currentBlockSpeed = BLOCK_SPEED;
 let currentSpawnInterval = BLOCK_SPAWN_INTERVAL;
@@ -194,14 +198,17 @@ function initGame() {
   aimStartY = 0;
   aimCurrentX = 0;
   aimCurrentY = 0;
+  lastDirX = 0;
+  lastDirY = -1; // Start shooting upward
 
   console.log('🎮 Game initialized!');
   console.log('📱 iOS safe areas respected - optimized for notch and home bar');
-  console.log('🎯 Drag to aim and shoot continuously - arrow shows direction!');
+  console.log('🎯 Auto-fire ALWAYS ON! Drag to change direction - arrow always visible!');
   console.log('🔫 Bullets start with 0 bounces - disappear on first wall/enemy hit!');
   console.log('⭐ Upgrade bounce to make bullets reflect on walls and enemies');
   console.log('🧱 ALL bounces (walls + enemies) consume bullet life');
   console.log('🟥 Enemies are cubes with HP scaling: 5, 10, 15, 20...');
+  console.log('📉 Fewer initial enemies - longer spawn interval (4s vs 2s)');
   console.log('💥 Realistic bounce physics - angles reflect based on collision side!');
   console.log('📊 Kill enemies to fill progress bar and level up!');
   console.log('💪 Choose upgrades: Bounce, Speed (+2%), or Damage');
@@ -283,24 +290,32 @@ function shootBulletInDirection() {
   const now = Date.now();
   if (now - lastShot < BULLET_COOLDOWN) return;
 
-  // Calculate direction from player center to aim point
   const rect = canvas.getBoundingClientRect();
   const playerCenterX = player.x + player.width / 2;
   const playerCenterY = player.y + player.height / 2;
 
-  const dx = aimCurrentX - aimStartX;
-  const dy = aimCurrentY - aimStartY;
-  const distance = Math.sqrt(dx * dx + dy * dy);
+  let dirX = lastDirX;
+  let dirY = lastDirY;
 
-  // Minimum drag distance to shoot
-  if (distance < 10) return;
+  // If currently aiming, update direction
+  if (isAiming) {
+    const dx = aimCurrentX - aimStartX;
+    const dy = aimCurrentY - aimStartY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Only update direction if drag distance is significant
+    if (distance >= 10) {
+      dirX = dx / distance;
+      dirY = dy / distance;
+
+      // Remember this direction
+      lastDirX = dirX;
+      lastDirY = dirY;
+    }
+  }
 
   lastShot = now;
   const bulletSpeed = BASE_BULLET_SPEED * bulletSpeedMultiplier;
-
-  // Normalize direction
-  const dirX = dx / distance;
-  const dirY = dy / distance;
 
   // Shoot single projectile
   bullets.push({
@@ -475,10 +490,8 @@ function update() {
 
   const rect = canvas.getBoundingClientRect();
 
-  // Continuous shooting while aiming
-  if (isAiming) {
-    shootBulletInDirection();
-  }
+  // Always shoot continuously
+  shootBulletInDirection();
 
   // Spawn blocks
   spawnBlock();
@@ -693,50 +706,46 @@ function render() {
     ctx.fillText(block.hp, centerX, centerY);
   });
 
-  // Draw aiming indicator
-  if (isAiming && !gameOver && !gamePaused) {
-    const dx = aimCurrentX - aimStartX;
-    const dy = aimCurrentY - aimStartY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
+  // Draw aiming indicator (always visible)
+  if (!gameOver && !gamePaused) {
+    const playerCenterX = player.x + player.width / 2;
+    const playerCenterY = player.y + player.height / 2;
 
-    if (distance > 10) {
-      const playerCenterX = player.x + player.width / 2;
-      const playerCenterY = player.y + player.height / 2;
+    // Use last known direction
+    const dirX = lastDirX;
+    const dirY = lastDirY;
 
-      // Smaller arrow size (30% of original)
-      const lineLength = 75; // Was 250, now 30%
-      const dirX = dx / distance;
-      const dirY = dy / distance;
-      const endX = playerCenterX + dirX * lineLength;
-      const endY = playerCenterY + dirY * lineLength;
+    // Smaller arrow size (30% of original)
+    const lineLength = 75;
+    const endX = playerCenterX + dirX * lineLength;
+    const endY = playerCenterY + dirY * lineLength;
 
-      // Draw arrow line (thinner)
-      ctx.strokeStyle = '#f39c12';
-      ctx.lineWidth = 2; // Was 6, now ~30%
-      ctx.setLineDash([5, 5]); // Was [8,8], now smaller
-      ctx.beginPath();
-      ctx.moveTo(playerCenterX, playerCenterY);
-      ctx.lineTo(endX, endY);
-      ctx.stroke();
-      ctx.setLineDash([]);
+    // Draw arrow line (thinner)
+    ctx.strokeStyle = '#f39c12';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(playerCenterX, playerCenterY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
-      // Draw smaller arrow head
-      const arrowSize = 8; // Was 25, now ~30%
-      const angle = Math.atan2(dirY, dirX);
-      ctx.fillStyle = '#f39c12';
-      ctx.beginPath();
-      ctx.moveTo(endX, endY);
-      ctx.lineTo(
-        endX - arrowSize * Math.cos(angle - Math.PI / 6),
-        endY - arrowSize * Math.sin(angle - Math.PI / 6)
-      );
-      ctx.lineTo(
-        endX - arrowSize * Math.cos(angle + Math.PI / 6),
-        endY - arrowSize * Math.sin(angle + Math.PI / 6)
-      );
-      ctx.closePath();
-      ctx.fill();
-    }
+    // Draw smaller arrow head
+    const arrowSize = 8;
+    const angle = Math.atan2(dirY, dirX);
+    ctx.fillStyle = '#f39c12';
+    ctx.beginPath();
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(
+      endX - arrowSize * Math.cos(angle - Math.PI / 6),
+      endY - arrowSize * Math.sin(angle - Math.PI / 6)
+    );
+    ctx.lineTo(
+      endX - arrowSize * Math.cos(angle + Math.PI / 6),
+      endY - arrowSize * Math.sin(angle + Math.PI / 6)
+    );
+    ctx.closePath();
+    ctx.fill();
   }
 
   // Draw progress bar at top (below safe area)

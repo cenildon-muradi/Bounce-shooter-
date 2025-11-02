@@ -100,6 +100,8 @@ const BLOCK_SIZES = {
 const BLOCK_SPEED = 0.4;
 const BLOCK_SPAWN_INTERVAL = 2000; // ms between block spawns
 let lastBlockSpawn = 0;
+let currentBlockSpeed = BLOCK_SPEED;
+let currentSpawnInterval = BLOCK_SPAWN_INTERVAL;
 
 // Setup canvas size
 function resizeCanvas() {
@@ -150,6 +152,8 @@ function initGame() {
   extraProjectiles = 0;
   bullets.length = 0;
   blocks.length = 0;
+  currentBlockSpeed = BLOCK_SPEED;
+  currentSpawnInterval = BLOCK_SPAWN_INTERVAL;
 
   console.log('🎮 Game initialized!');
   console.log('📱 Drag to move platform - follows your finger!');
@@ -243,7 +247,7 @@ function shootBullet() {
 // Spawn a block (circle)
 function spawnBlock() {
   const now = Date.now();
-  if (now - lastBlockSpawn < BLOCK_SPAWN_INTERVAL) return;
+  if (now - lastBlockSpawn < currentSpawnInterval) return;
 
   lastBlockSpawn = now;
   const rect = canvas.getBoundingClientRect();
@@ -261,8 +265,24 @@ function spawnBlock() {
     hp: size.hp,
     maxHp: size.hp,
     size: 'LARGE',
-    isElite: false
+    isElite: false,
+    speed: currentBlockSpeed
   });
+
+  // At higher levels, sometimes spawn multiple blocks at once
+  if (level >= 3 && Math.random() < 0.3) {
+    blocks.push({
+      x: margin + Math.random() * maxX,
+      y: -size.radius - 100,
+      radius: size.radius,
+      color: size.color,
+      hp: size.hp,
+      maxHp: size.hp,
+      size: 'LARGE',
+      isElite: false,
+      speed: currentBlockSpeed
+    });
+  }
 }
 
 // Spawn an elite block with extra HP
@@ -283,7 +303,8 @@ function spawnEliteBlock() {
     hp: baseSize.hp + extraHP,
     maxHp: baseSize.hp + extraHP,
     size: 'ELITE',
-    isElite: true
+    isElite: true,
+    speed: currentBlockSpeed * 0.8 // Elites move slightly slower but tankier
   });
 
   console.log(`💀 Elite spawned! HP: ${baseSize.hp + extraHP}, Level: ${level}`);
@@ -308,7 +329,8 @@ function splitBlock(block) {
     hp: sizeConfig.hp,
     maxHp: sizeConfig.hp,
     size: newSize,
-    isElite: false
+    isElite: false,
+    speed: block.speed // Inherit parent speed
   });
 
   blocks.push({
@@ -319,7 +341,8 @@ function splitBlock(block) {
     hp: sizeConfig.hp,
     maxHp: sizeConfig.hp,
     size: newSize,
-    isElite: false
+    isElite: false,
+    speed: block.speed // Inherit parent speed
   });
 }
 
@@ -331,10 +354,18 @@ function levelUp() {
   gamePaused = true;
   showUpgradeMenu = true;
 
+  // Increase difficulty with each level
+  // Block speed increases by 15% per level
+  currentBlockSpeed = BLOCK_SPEED * (1 + (level - 1) * 0.15);
+
+  // Spawn interval decreases by 10% per level (blocks spawn faster)
+  currentSpawnInterval = Math.max(500, BLOCK_SPAWN_INTERVAL * Math.pow(0.9, level - 1));
+
   // Spawn elite enemy
   spawnEliteBlock();
 
   console.log(`🎉 Level ${level}! Next goal: ${requiredKills} kills`);
+  console.log(`📈 Difficulty: Speed ${currentBlockSpeed.toFixed(2)}, Spawn interval ${currentSpawnInterval.toFixed(0)}ms`);
 }
 
 // Apply upgrade
@@ -390,12 +421,14 @@ function update() {
 
   // Update blocks (circles)
   for (let i = blocks.length - 1; i >= 0; i--) {
-    blocks[i].y += BLOCK_SPEED;
+    const block = blocks[i];
+    block.y += block.speed || currentBlockSpeed;
 
     // Check if block reached bottom (game over)
-    if (blocks[i].y - blocks[i].radius > rect.height) {
+    if (block.y - block.radius > rect.height) {
       gameOver = true;
       console.log('💀 Game Over! Final score:', score);
+      console.log(`📊 Reached Level ${level}, Killed ${kills + (level - 1) * (requiredKills - 5) + 10} enemies total`);
       return;
     }
   }

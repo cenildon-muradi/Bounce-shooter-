@@ -57,6 +57,32 @@ let gameOver = false;
 let gamePaused = false;
 let score = 0;
 
+// Safe area insets for iOS
+let safeAreaTop = 0;
+let safeAreaBottom = 0;
+let safeAreaLeft = 0;
+let safeAreaRight = 0;
+
+// Get safe area insets from CSS
+function updateSafeAreas() {
+  const computedStyle = getComputedStyle(document.documentElement);
+  safeAreaTop = parseInt(computedStyle.getPropertyValue('env(safe-area-inset-top)') || '0', 10);
+  safeAreaBottom = parseInt(computedStyle.getPropertyValue('env(safe-area-inset-bottom)') || '0', 10);
+  safeAreaLeft = parseInt(computedStyle.getPropertyValue('env(safe-area-inset-left)') || '0', 10);
+  safeAreaRight = parseInt(computedStyle.getPropertyValue('env(safe-area-inset-right)') || '0', 10);
+
+  // Fallback: try reading from body padding
+  if (safeAreaTop === 0 && safeAreaBottom === 0) {
+    const bodyStyle = getComputedStyle(document.body);
+    safeAreaTop = parseInt(bodyStyle.paddingTop, 10) || 0;
+    safeAreaBottom = parseInt(bodyStyle.paddingBottom, 10) || 0;
+    safeAreaLeft = parseInt(bodyStyle.paddingLeft, 10) || 0;
+    safeAreaRight = parseInt(bodyStyle.paddingRight, 10) || 0;
+  }
+
+  console.log(`📱 Safe areas - Top: ${safeAreaTop}px, Bottom: ${safeAreaBottom}px, Left: ${safeAreaLeft}px, Right: ${safeAreaRight}px`);
+}
+
 // Progression system
 let kills = 0;
 let requiredKills = 10;
@@ -111,6 +137,9 @@ let currentSpawnInterval = BLOCK_SPAWN_INTERVAL;
 
 // Setup canvas size
 function resizeCanvas() {
+  // Update safe areas first
+  updateSafeAreas();
+
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
 
@@ -122,9 +151,9 @@ function resizeCanvas() {
 
   ctx.scale(dpr, dpr);
 
-  // Position player at bottom center
+  // Position player at bottom center, above safe area
   player.x = (rect.width - player.width) / 2;
-  player.y = rect.height - player.height - 20;
+  player.y = rect.height - player.height - safeAreaBottom - 20;
 
   console.log(`Canvas resized: ${rect.width}x${rect.height} (DPR: ${dpr})`);
 }
@@ -167,6 +196,7 @@ function initGame() {
   aimCurrentY = 0;
 
   console.log('🎮 Game initialized!');
+  console.log('📱 iOS safe areas respected - optimized for notch and home bar');
   console.log('🎯 Drag to aim and shoot continuously!');
   console.log('🔫 Bullets ricochet up to 3 times - change direction on the fly!');
   console.log('⚫ Enemy HP scales with level: 5, 10, 15, 20...');
@@ -676,11 +706,11 @@ function render() {
     }
   }
 
-  // Draw progress bar at top
+  // Draw progress bar at top (below safe area)
   const barHeight = 30;
   const barPadding = 10;
   const barWidth = rect.width - barPadding * 2;
-  const barY = 10;
+  const barY = safeAreaTop + 10;
 
   // Background
   ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
@@ -703,7 +733,7 @@ function render() {
   ctx.textBaseline = 'middle';
   ctx.fillText(`${kills}/${requiredKills} - Level ${level}`, rect.width / 2, barY + barHeight / 2);
 
-  // Draw score
+  // Draw score (below progress bar)
   ctx.fillStyle = '#ecf0f1';
   ctx.font = 'bold 20px system-ui';
   ctx.textAlign = 'left';
@@ -714,20 +744,23 @@ function render() {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
     ctx.fillRect(0, 0, rect.width, rect.height);
 
+    // Center menu content vertically considering safe areas
+    const menuTopMargin = safeAreaTop + 80;
+
     ctx.fillStyle = '#f39c12';
     ctx.font = 'bold 36px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText(`LEVEL ${level}!`, rect.width / 2, 80);
+    ctx.fillText(`LEVEL ${level}!`, rect.width / 2, menuTopMargin);
 
     ctx.fillStyle = '#ecf0f1';
     ctx.font = '20px system-ui';
-    ctx.fillText('Choose an upgrade:', rect.width / 2, 130);
+    ctx.fillText('Choose an upgrade:', rect.width / 2, menuTopMargin + 50);
 
     // Draw upgrade buttons
     const buttonWidth = Math.min(250, rect.width - 40);
     const buttonHeight = 70;
     const buttonX = rect.width / 2 - buttonWidth / 2;
-    const startY = 180;
+    const startY = menuTopMargin + 100;
     const spacing = 90;
 
     const upgrades = [
@@ -771,17 +804,20 @@ function render() {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.fillRect(0, 0, rect.width, rect.height);
 
+    // Center vertically considering safe areas
+    const centerY = (rect.height + safeAreaTop - safeAreaBottom) / 2;
+
     ctx.fillStyle = '#e74c3c';
     ctx.font = 'bold 48px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', rect.width / 2, rect.height / 2 - 40);
+    ctx.fillText('GAME OVER', rect.width / 2, centerY - 40);
 
     ctx.fillStyle = '#ecf0f1';
     ctx.font = 'bold 32px system-ui';
-    ctx.fillText(`Final Score: ${score}`, rect.width / 2, rect.height / 2 + 20);
+    ctx.fillText(`Final Score: ${score}`, rect.width / 2, centerY + 20);
 
     ctx.font = '20px system-ui';
-    ctx.fillText('Tap to restart', rect.width / 2, rect.height / 2 + 80);
+    ctx.fillText('Tap to restart', rect.width / 2, centerY + 80);
   }
 }
 

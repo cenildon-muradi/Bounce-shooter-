@@ -55,6 +55,15 @@ export const PROGRESS_BAR_HEIGHT = 30;
 export const PROGRESS_BAR_PADDING = 10;
 export const PROGRESS_BAR_COLOR = '#2ecc71';
 
+// === TOWER SETTINGS ===
+export const TOWER_WIDTH = 60;
+export const TOWER_HEIGHT = 80;
+export const TOWER_COLOR = '#34495e';
+export const TOWER_OFFSET_BOTTOM = 20; // Distance from bottom of screen
+export const GAME_OVER_LINE_OFFSET = 10; // Distance above tower
+export const GAME_OVER_LINE_WIDTH = 3;
+export const GAME_OVER_LINE_COLOR = '#e74c3c';
+
 // === SAFE AREA SETTINGS ===
 export const EXTRA_LATERAL_SAFE_AREA = 50; // Additional lateral padding
 

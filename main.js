@@ -2,6 +2,8 @@
 // Mobile-optimized with touch controls
 
 import * as debugConsole from './console.js';
+import { EXTRA_LATERAL_SAFE_AREA, GRID_COLUMNS, GRID_CELL_SIZE } from './config.js';
+import { isGridCellOccupied, occupyGridCell, freeGridCell } from './state.js';
 
 // Version checking configuration
 const VERSION_CHECK_INTERVAL = 2000;
@@ -79,6 +81,10 @@ function updateSafeAreas() {
     safeAreaLeft = parseInt(bodyStyle.paddingLeft, 10) || 0;
     safeAreaRight = parseInt(bodyStyle.paddingRight, 10) || 0;
   }
+
+  // Add extra lateral safe area
+  safeAreaLeft += EXTRA_LATERAL_SAFE_AREA;
+  safeAreaRight += EXTRA_LATERAL_SAFE_AREA;
 
   console.log(`📱 Safe areas - Top: ${safeAreaTop}px, Bottom: ${safeAreaBottom}px, Left: ${safeAreaLeft}px, Right: ${safeAreaRight}px`);
 }
@@ -330,25 +336,101 @@ function shootBulletInDirection() {
   });
 }
 
-// Spawn a block (cube)
+// === GRID HELPER FUNCTIONS ===
+
+// Convert grid coordinates to pixel position
+function gridToPixel(col, row) {
+  const rect = canvas.getBoundingClientRect();
+  const playAreaWidth = rect.width - safeAreaLeft - safeAreaRight;
+  const columnWidth = playAreaWidth / GRID_COLUMNS;
+
+  // Center the cell within its column
+  const x = safeAreaLeft + col * columnWidth + (columnWidth - GRID_CELL_SIZE) / 2;
+  const y = row * GRID_CELL_SIZE;
+
+  return { x, y };
+}
+
+// Convert pixel position to grid coordinates
+function pixelToGrid(x, y) {
+  const rect = canvas.getBoundingClientRect();
+  const playAreaWidth = rect.width - safeAreaLeft - safeAreaRight;
+  const columnWidth = playAreaWidth / GRID_COLUMNS;
+
+  const col = Math.floor((x - safeAreaLeft) / columnWidth);
+  const row = Math.floor(y / GRID_CELL_SIZE);
+
+  return { col, row };
+}
+
+// Find an available grid cell for spawning
+function findAvailableGridCell(enemySize) {
+  const rect = canvas.getBoundingClientRect();
+  const cellsNeeded = Math.ceil(enemySize / GRID_CELL_SIZE);
+
+  // Try top rows first (enemies spawn from top)
+  const maxRow = 5; // Only check top 5 rows for spawning
+
+  // Shuffle columns to randomize spawn position
+  const columns = Array.from({ length: GRID_COLUMNS }, (_, i) => i);
+  for (let i = columns.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [columns[i], columns[j]] = [columns[j], columns[i]];
+  }
+
+  // Find first available position
+  for (let row = 0; row < maxRow; row++) {
+    for (const col of columns) {
+      // Check if this position and adjacent cells (if needed) are free
+      let allFree = true;
+      for (let dc = 0; dc < cellsNeeded && allFree; dc++) {
+        for (let dr = 0; dr < cellsNeeded && allFree; dr++) {
+          if (col + dc >= GRID_COLUMNS || isGridCellOccupied(row + dr, col + dc)) {
+            allFree = false;
+          }
+        }
+      }
+
+      if (allFree) {
+        return { col, row, cellsNeeded };
+      }
+    }
+  }
+
+  return null; // No available position
+}
+
+// Spawn a block (cube) using grid system
 function spawnBlock() {
   const now = Date.now();
   if (now - lastBlockSpawn < currentSpawnInterval) return;
 
   lastBlockSpawn = now;
-  const rect = canvas.getBoundingClientRect();
 
   // Start with large blocks
   const sizeConfig = BLOCK_SIZES.LARGE;
-  const margin = sizeConfig.size / 2;
-  const maxX = rect.width - sizeConfig.size;
+  const hp = level * 5; // HP scales with level
 
-  // HP scales with level: 5, 10, 15, 20, etc.
-  const hp = level * 5;
+  // Find available grid position
+  const gridPos = findAvailableGridCell(sizeConfig.size);
+  if (!gridPos) {
+    console.log('⚠️ No grid space available for spawning');
+    return; // Grid is full, can't spawn
+  }
+
+  // Convert grid position to pixel coordinates
+  const pixelPos = gridToPixel(gridPos.col, gridPos.row);
+
+  // Mark grid cells as occupied
+  for (let dc = 0; dc < gridPos.cellsNeeded; dc++) {
+    for (let dr = 0; dr < gridPos.cellsNeeded; dr++) {
+      occupyGridCell(gridPos.row + dr, gridPos.col + dc);
+    }
+  }
 
   blocks.push({
-    x: margin + Math.random() * maxX,
-    y: -sizeConfig.size,
+    x: pixelPos.x,
+    y: pixelPos.y - sizeConfig.size, // Spawn above visible area
     width: sizeConfig.size,
     height: sizeConfig.size,
     color: sizeConfig.color,
@@ -356,41 +438,70 @@ function spawnBlock() {
     maxHp: hp,
     size: 'LARGE',
     isElite: false,
-    speed: currentBlockSpeed
+    speed: currentBlockSpeed,
+    gridCol: gridPos.col,
+    gridRow: gridPos.row,
+    gridCells: gridPos.cellsNeeded
   });
 
   // At higher levels, sometimes spawn multiple blocks at once
   if (level >= 3 && Math.random() < 0.3) {
-    blocks.push({
-      x: margin + Math.random() * maxX,
-      y: -sizeConfig.size - 100,
-      width: sizeConfig.size,
-      height: sizeConfig.size,
-      color: sizeConfig.color,
-      hp: hp,
-      maxHp: hp,
-      size: 'LARGE',
-      isElite: false,
-      speed: currentBlockSpeed
-    });
+    const secondGridPos = findAvailableGridCell(sizeConfig.size);
+    if (secondGridPos) {
+      const secondPixelPos = gridToPixel(secondGridPos.col, secondGridPos.row);
+
+      // Mark second block's grid cells as occupied
+      for (let dc = 0; dc < secondGridPos.cellsNeeded; dc++) {
+        for (let dr = 0; dr < secondGridPos.cellsNeeded; dr++) {
+          occupyGridCell(secondGridPos.row + dr, secondGridPos.col + dc);
+        }
+      }
+
+      blocks.push({
+        x: secondPixelPos.x,
+        y: secondPixelPos.y - sizeConfig.size - 100,
+        width: sizeConfig.size,
+        height: sizeConfig.size,
+        color: sizeConfig.color,
+        hp: hp,
+        maxHp: hp,
+        size: 'LARGE',
+        isElite: false,
+        speed: currentBlockSpeed,
+        gridCol: secondGridPos.col,
+        gridRow: secondGridPos.row,
+        gridCells: secondGridPos.cellsNeeded
+      });
+    }
   }
 }
 
-// Spawn an elite block with extra HP
+// Spawn an elite block with extra HP using grid system
 function spawnEliteBlock() {
-  const rect = canvas.getBoundingClientRect();
   const baseSize = BLOCK_SIZES.LARGE;
   const eliteSize = baseSize.size + level * 10; // Grows with level
+  const eliteHP = level * 10; // Elite HP: 10x level
 
-  // Elite HP: 10x level (double normal blocks)
-  const eliteHP = level * 10;
+  // Find available grid position
+  const gridPos = findAvailableGridCell(eliteSize);
+  if (!gridPos) {
+    console.log('⚠️ No grid space available for elite spawn');
+    return; // Grid is full, can't spawn
+  }
 
-  const margin = eliteSize / 2;
-  const maxX = rect.width - eliteSize;
+  // Convert grid position to pixel coordinates
+  const pixelPos = gridToPixel(gridPos.col, gridPos.row);
+
+  // Mark grid cells as occupied
+  for (let dc = 0; dc < gridPos.cellsNeeded; dc++) {
+    for (let dr = 0; dr < gridPos.cellsNeeded; dr++) {
+      occupyGridCell(gridPos.row + dr, gridPos.col + dc);
+    }
+  }
 
   blocks.push({
-    x: margin + Math.random() * maxX,
-    y: -eliteSize,
+    x: pixelPos.x,
+    y: pixelPos.y - eliteSize,
     width: eliteSize,
     height: eliteSize,
     color: '#9b59b6', // Purple for elite
@@ -398,51 +509,82 @@ function spawnEliteBlock() {
     maxHp: eliteHP,
     size: 'ELITE',
     isElite: true,
-    speed: currentBlockSpeed * 0.8 // Elites move slightly slower but tankier
+    speed: currentBlockSpeed * 0.8, // Elites move slightly slower but tankier
+    gridCol: gridPos.col,
+    gridRow: gridPos.row,
+    gridCells: gridPos.cellsNeeded
   });
 
   console.log(`💀 Elite spawned! HP: ${eliteHP}, Level: ${level}`);
 }
 
-// Split block into smaller blocks
+// Split block into smaller blocks using grid system
 function splitBlock(block) {
   // Elite blocks don't split
   if (block.isElite) return;
 
   const newSize = block.size === 'LARGE' ? 'MEDIUM' : 'SMALL';
   const sizeConfig = BLOCK_SIZES[newSize];
-
-  // Create two smaller cubes at slight offset
-  const offset = sizeConfig.size / 2;
-
-  // Split HP: half of parent HP (rounded up)
   const splitHP = Math.ceil(block.maxHp / 2);
 
-  blocks.push({
-    x: block.x - offset,
-    y: block.y,
-    width: sizeConfig.size,
-    height: sizeConfig.size,
-    color: sizeConfig.color,
-    hp: splitHP,
-    maxHp: splitHP,
-    size: newSize,
-    isElite: false,
-    speed: block.speed // Inherit parent speed
-  });
+  // Try to place split blocks near the parent's position
+  // First split block - try left/adjacent cells
+  const gridPos1 = findAvailableGridCell(sizeConfig.size);
+  if (gridPos1) {
+    const pixelPos1 = gridToPixel(gridPos1.col, gridPos1.row);
 
-  blocks.push({
-    x: block.x + offset,
-    y: block.y,
-    width: sizeConfig.size,
-    height: sizeConfig.size,
-    color: sizeConfig.color,
-    hp: splitHP,
-    maxHp: splitHP,
-    size: newSize,
-    isElite: false,
-    speed: block.speed // Inherit parent speed
-  });
+    // Mark grid cells as occupied
+    for (let dc = 0; dc < gridPos1.cellsNeeded; dc++) {
+      for (let dr = 0; dr < gridPos1.cellsNeeded; dr++) {
+        occupyGridCell(gridPos1.row + dr, gridPos1.col + dc);
+      }
+    }
+
+    blocks.push({
+      x: pixelPos1.x,
+      y: block.y, // Keep same vertical position
+      width: sizeConfig.size,
+      height: sizeConfig.size,
+      color: sizeConfig.color,
+      hp: splitHP,
+      maxHp: splitHP,
+      size: newSize,
+      isElite: false,
+      speed: block.speed,
+      gridCol: gridPos1.col,
+      gridRow: gridPos1.row,
+      gridCells: gridPos1.cellsNeeded
+    });
+  }
+
+  // Second split block - try right/adjacent cells
+  const gridPos2 = findAvailableGridCell(sizeConfig.size);
+  if (gridPos2) {
+    const pixelPos2 = gridToPixel(gridPos2.col, gridPos2.row);
+
+    // Mark grid cells as occupied
+    for (let dc = 0; dc < gridPos2.cellsNeeded; dc++) {
+      for (let dr = 0; dr < gridPos2.cellsNeeded; dr++) {
+        occupyGridCell(gridPos2.row + dr, gridPos2.col + dc);
+      }
+    }
+
+    blocks.push({
+      x: pixelPos2.x,
+      y: block.y, // Keep same vertical position
+      width: sizeConfig.size,
+      height: sizeConfig.size,
+      color: sizeConfig.color,
+      hp: splitHP,
+      maxHp: splitHP,
+      size: newSize,
+      isElite: false,
+      speed: block.speed,
+      gridCol: gridPos2.col,
+      gridRow: gridPos2.row,
+      gridCells: gridPos2.cellsNeeded
+    });
+  }
 }
 
 // Level up and show upgrade menu
@@ -531,7 +673,21 @@ function update() {
   // Update blocks (cubes)
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];
+    const oldY = block.y;
     block.y += block.speed || currentBlockSpeed;
+
+    // Free grid cells when block moves past spawn zone
+    if (block.gridCells !== undefined && !block.gridFreed) {
+      const spawnZoneHeight = 10 * GRID_CELL_SIZE; // Top 10 rows
+      if (block.y > spawnZoneHeight) {
+        for (let dc = 0; dc < block.gridCells; dc++) {
+          for (let dr = 0; dr < block.gridCells; dr++) {
+            freeGridCell(block.gridRow + dr, block.gridCol + dc);
+          }
+        }
+        block.gridFreed = true; // Mark as freed to avoid freeing multiple times
+      }
+    }
 
     // Check if block reached bottom (game over)
     if (block.y > rect.height) {
@@ -593,6 +749,15 @@ function update() {
 
         // If block HP is 0
         if (block.hp <= 0) {
+          // Free grid cells occupied by this block
+          if (block.gridCells !== undefined) {
+            for (let dc = 0; dc < block.gridCells; dc++) {
+              for (let dr = 0; dr < block.gridCells; dr++) {
+                freeGridCell(block.gridRow + dr, block.gridCol + dc);
+              }
+            }
+          }
+
           // Remove block
           blocks.splice(j, 1);
 

@@ -2,7 +2,18 @@
 // Mobile-optimized with touch controls
 
 import * as debugConsole from './console.js';
-import { EXTRA_LATERAL_SAFE_AREA, GRID_COLUMNS, GRID_CELL_SIZE } from './config.js';
+import {
+  EXTRA_LATERAL_SAFE_AREA,
+  GRID_COLUMNS,
+  GRID_CELL_SIZE,
+  TOWER_WIDTH,
+  TOWER_HEIGHT,
+  TOWER_COLOR,
+  TOWER_OFFSET_BOTTOM,
+  GAME_OVER_LINE_OFFSET,
+  GAME_OVER_LINE_WIDTH,
+  GAME_OVER_LINE_COLOR
+} from './config.js';
 import { isGridCellOccupied, occupyGridCell, freeGridCell } from './state.js';
 
 // Version checking configuration
@@ -297,8 +308,12 @@ function shootBulletInDirection() {
   if (now - lastShot < BULLET_COOLDOWN) return;
 
   const rect = canvas.getBoundingClientRect();
-  const playerCenterX = player.x + player.width / 2;
-  const playerCenterY = player.y + player.height / 2;
+
+  // Calculate tower position
+  const towerX = (rect.width - TOWER_WIDTH) / 2;
+  const towerY = rect.height - safeAreaBottom - TOWER_OFFSET_BOTTOM - TOWER_HEIGHT;
+  const towerCenterX = towerX + TOWER_WIDTH / 2;
+  const towerTopY = towerY;
 
   let dirX = lastDirX;
   let dirY = lastDirY;
@@ -323,10 +338,10 @@ function shootBulletInDirection() {
   lastShot = now;
   const bulletSpeed = BASE_BULLET_SPEED * bulletSpeedMultiplier;
 
-  // Shoot single projectile
+  // Shoot single projectile from tower top
   bullets.push({
-    x: playerCenterX - BULLET_WIDTH / 2,
-    y: playerCenterY - BULLET_HEIGHT / 2,
+    x: towerCenterX - BULLET_WIDTH / 2,
+    y: towerTopY - BULLET_HEIGHT,
     width: BULLET_WIDTH,
     height: BULLET_HEIGHT,
     vx: dirX * bulletSpeed,
@@ -689,10 +704,13 @@ function update() {
       }
     }
 
-    // Check if block reached bottom (game over)
-    if (block.y > rect.height) {
+    // Check if block reached game over line (above tower)
+    const towerY = rect.height - safeAreaBottom - TOWER_OFFSET_BOTTOM - TOWER_HEIGHT;
+    const gameOverLineY = towerY - GAME_OVER_LINE_OFFSET;
+
+    if (block.y + block.height >= gameOverLineY) {
       gameOver = true;
-      console.log('💀 Game Over! Final score:', score);
+      console.log('💀 Game Over! Enemy crossed the line! Final score:', score);
       console.log(`📊 Reached Level ${level}, Killed ${kills + (level - 1) * (requiredKills - 5) + 10} enemies total`);
       return;
     }
@@ -826,6 +844,32 @@ function render() {
   ctx.lineWidth = 2;
   ctx.strokeRect(player.x, player.y, player.width, player.height);
 
+  // Draw tower
+  const towerX = (rect.width - TOWER_WIDTH) / 2;
+  const towerY = rect.height - safeAreaBottom - TOWER_OFFSET_BOTTOM - TOWER_HEIGHT;
+  ctx.fillStyle = TOWER_COLOR;
+  ctx.fillRect(towerX, towerY, TOWER_WIDTH, TOWER_HEIGHT);
+
+  // Tower highlight
+  ctx.fillStyle = '#546e7a';
+  ctx.fillRect(towerX, towerY, TOWER_WIDTH, TOWER_HEIGHT / 3);
+
+  // Tower border
+  ctx.strokeStyle = '#263238';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(towerX, towerY, TOWER_WIDTH, TOWER_HEIGHT);
+
+  // Draw game over line (above tower)
+  const gameOverLineY = towerY - GAME_OVER_LINE_OFFSET;
+  ctx.strokeStyle = GAME_OVER_LINE_COLOR;
+  ctx.lineWidth = GAME_OVER_LINE_WIDTH;
+  ctx.setLineDash([10, 5]);
+  ctx.beginPath();
+  ctx.moveTo(safeAreaLeft, gameOverLineY);
+  ctx.lineTo(rect.width - safeAreaRight, gameOverLineY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
   // Draw bullets as circles
   bullets.forEach(bullet => {
     const radius = bullet.width / 2;
@@ -871,10 +915,10 @@ function render() {
     ctx.fillText(block.hp, centerX, centerY);
   });
 
-  // Draw aiming indicator (always visible)
+  // Draw aiming indicator (always visible) from tower top
   if (!gameOver && !gamePaused) {
-    const playerCenterX = player.x + player.width / 2;
-    const playerCenterY = player.y + player.height / 2;
+    const towerCenterX = towerX + TOWER_WIDTH / 2;
+    const towerTopY = towerY;
 
     // Use last known direction
     const dirX = lastDirX;
@@ -882,15 +926,15 @@ function render() {
 
     // Smaller arrow size (30% of original)
     const lineLength = 75;
-    const endX = playerCenterX + dirX * lineLength;
-    const endY = playerCenterY + dirY * lineLength;
+    const endX = towerCenterX + dirX * lineLength;
+    const endY = towerTopY + dirY * lineLength;
 
     // Draw arrow line (thinner)
     ctx.strokeStyle = '#f39c12';
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 5]);
     ctx.beginPath();
-    ctx.moveTo(playerCenterX, playerCenterY);
+    ctx.moveTo(towerCenterX, towerTopY);
     ctx.lineTo(endX, endY);
     ctx.stroke();
     ctx.setLineDash([]);

@@ -78,11 +78,11 @@ const BULLET_COOLDOWN = 300; // ms between shots
 const MAX_BOUNCES = 3;
 let lastShot = 0;
 
-// Block sizes and HP
+// Block sizes and HP (now circles with radius)
 const BLOCK_SIZES = {
-  LARGE: { width: 80, height: 60, hp: 3, color: '#e74c3c' },
-  MEDIUM: { width: 60, height: 45, hp: 2, color: '#3498db' },
-  SMALL: { width: 40, height: 30, hp: 1, color: '#2ecc71' }
+  LARGE: { radius: 40, hp: 3, color: '#e74c3c' },
+  MEDIUM: { radius: 30, hp: 2, color: '#3498db' },
+  SMALL: { radius: 20, hp: 1, color: '#2ecc71' }
 };
 
 const BLOCK_SPEED = 0.4;
@@ -121,6 +121,9 @@ function initGame() {
 
   // Mouse controls (for desktop testing)
   canvas.addEventListener('mousedown', handleMouseDown);
+  canvas.addEventListener('mousemove', handleMouseMove);
+  canvas.addEventListener('mouseup', handleMouseUp);
+  canvas.addEventListener('mouseleave', handleMouseUp);
 
   gameRunning = true;
   gameOver = false;
@@ -129,58 +132,63 @@ function initGame() {
   blocks.length = 0;
 
   console.log('🎮 Game initialized!');
-  console.log('📱 Touch left/right side to move platform');
+  console.log('📱 Drag to move platform - follows your finger!');
   console.log('🔫 Auto-shoots bullets that ricochet up to 3 times');
-  console.log('🧱 Large blocks (HP:3) → Medium (HP:2) → Small (HP:1)');
-  console.log('💥 Bullets bounce off walls and blocks!');
+  console.log('⚫ Circles: Large (HP:3) → Medium (HP:2) → Small (HP:1)');
+  console.log('💥 Random ricochet angles off circles!');
 
   requestAnimationFrame(gameLoop);
 }
 
-// Touch handling
-let touchX = null;
+// Touch handling - drag to move
+let isDragging = false;
 
 function handleTouchStart(e) {
   e.preventDefault();
+  isDragging = true;
   const touch = e.touches[0];
-  touchX = touch.clientX;
-  updatePlayerMovement(touchX);
+  const rect = canvas.getBoundingClientRect();
+  updatePlayerPosition(touch.clientX - rect.left);
 }
 
 function handleTouchMove(e) {
   e.preventDefault();
+  if (!isDragging) return;
   const touch = e.touches[0];
-  touchX = touch.clientX;
-  updatePlayerMovement(touchX);
+  const rect = canvas.getBoundingClientRect();
+  updatePlayerPosition(touch.clientX - rect.left);
 }
 
 function handleTouchEnd(e) {
   e.preventDefault();
-  player.moveLeft = false;
-  player.moveRight = false;
-  touchX = null;
+  isDragging = false;
 }
 
 function handleMouseDown(e) {
+  e.preventDefault();
+  isDragging = true;
   const rect = canvas.getBoundingClientRect();
-  touchX = e.clientX - rect.left;
-  updatePlayerMovement(touchX);
+  updatePlayerPosition(e.clientX - rect.left);
 }
 
-function updatePlayerMovement(x) {
+function handleMouseMove(e) {
+  e.preventDefault();
+  if (!isDragging) return;
   const rect = canvas.getBoundingClientRect();
-  const centerX = rect.width / 2;
+  updatePlayerPosition(e.clientX - rect.left);
+}
 
-  if (x < centerX - 30) {
-    player.moveLeft = true;
-    player.moveRight = false;
-  } else if (x > centerX + 30) {
-    player.moveLeft = false;
-    player.moveRight = true;
-  } else {
-    player.moveLeft = false;
-    player.moveRight = false;
-  }
+function handleMouseUp(e) {
+  e.preventDefault();
+  isDragging = false;
+}
+
+function updatePlayerPosition(x) {
+  const rect = canvas.getBoundingClientRect();
+  // Center player on touch position
+  player.x = x - player.width / 2;
+  // Keep player within bounds
+  player.x = Math.max(0, Math.min(rect.width - player.width, player.x));
 }
 
 // Spawn a bullet
@@ -200,7 +208,7 @@ function shootBullet() {
   });
 }
 
-// Spawn a block
+// Spawn a block (circle)
 function spawnBlock() {
   const now = Date.now();
   if (now - lastBlockSpawn < BLOCK_SPAWN_INTERVAL) return;
@@ -210,13 +218,13 @@ function spawnBlock() {
 
   // Start with large blocks
   const size = BLOCK_SIZES.LARGE;
-  const maxX = rect.width - size.width;
+  const margin = size.radius;
+  const maxX = rect.width - margin * 2;
 
   blocks.push({
-    x: Math.random() * maxX,
-    y: -size.height,
-    width: size.width,
-    height: size.height,
+    x: margin + Math.random() * maxX,
+    y: -size.radius,
+    radius: size.radius,
     color: size.color,
     hp: size.hp,
     maxHp: size.hp,
@@ -229,14 +237,13 @@ function splitBlock(block) {
   const newSize = block.size === 'LARGE' ? 'MEDIUM' : 'SMALL';
   const sizeConfig = BLOCK_SIZES[newSize];
 
-  // Create two smaller blocks
-  const offset = sizeConfig.width / 2;
+  // Create two smaller circles at slight offset
+  const offset = sizeConfig.radius;
 
   blocks.push({
-    x: block.x - offset / 2,
+    x: block.x - offset,
     y: block.y,
-    width: sizeConfig.width,
-    height: sizeConfig.height,
+    radius: sizeConfig.radius,
     color: sizeConfig.color,
     hp: sizeConfig.hp,
     maxHp: sizeConfig.hp,
@@ -244,10 +251,9 @@ function splitBlock(block) {
   });
 
   blocks.push({
-    x: block.x + block.width / 2 + offset / 2,
+    x: block.x + offset,
     y: block.y,
-    width: sizeConfig.width,
-    height: sizeConfig.height,
+    radius: sizeConfig.radius,
     color: sizeConfig.color,
     hp: sizeConfig.hp,
     maxHp: sizeConfig.hp,
@@ -261,13 +267,7 @@ function update() {
 
   const rect = canvas.getBoundingClientRect();
 
-  // Move player
-  if (player.moveLeft) {
-    player.x = Math.max(0, player.x - player.speed);
-  }
-  if (player.moveRight) {
-    player.x = Math.min(rect.width - player.width, player.x + player.speed);
-  }
+  // Player is controlled by drag, no need to update here
 
   // Auto-shoot
   shootBullet();
@@ -295,12 +295,12 @@ function update() {
     }
   }
 
-  // Update blocks
+  // Update blocks (circles)
   for (let i = blocks.length - 1; i >= 0; i--) {
     blocks[i].y += BLOCK_SPEED;
 
     // Check if block reached bottom (game over)
-    if (blocks[i].y > rect.height) {
+    if (blocks[i].y - blocks[i].radius > rect.height) {
       gameOver = true;
       console.log('💀 Game Over! Final score:', score);
       return;
@@ -315,12 +315,18 @@ function update() {
     for (let j = blocks.length - 1; j >= 0; j--) {
       const block = blocks[j];
 
-      if (checkCollision(bullet, block)) {
+      if (checkCircleCollision(bullet, block)) {
         // Reduce block HP
         block.hp--;
 
-        // Bullet bounces off block
-        bullet.vy = -bullet.vy;
+        // Calculate random ricochet angle
+        const randomAngle = (Math.random() - 0.5) * Math.PI; // Random angle between -90° and +90°
+        const speed = Math.sqrt(bullet.vx * bullet.vx + bullet.vy * bullet.vy);
+
+        // Apply random ricochet direction
+        bullet.vx = Math.sin(randomAngle) * speed;
+        bullet.vy = Math.cos(randomAngle) * speed;
+
         bullet.bounces++;
 
         // If block HP is 0
@@ -348,12 +354,17 @@ function update() {
   }
 }
 
-// Collision detection
-function checkCollision(a, b) {
-  return a.x < b.x + b.width &&
-         a.x + a.width > b.x &&
-         a.y < b.y + b.height &&
-         a.y + a.height > b.y;
+// Circle collision detection
+function checkCircleCollision(bullet, block) {
+  const bulletCenterX = bullet.x + bullet.width / 2;
+  const bulletCenterY = bullet.y + bullet.height / 2;
+  const bulletRadius = bullet.width / 2;
+
+  const dx = bulletCenterX - block.x;
+  const dy = bulletCenterY - block.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  return distance < (bulletRadius + block.radius);
 }
 
 // Render game
@@ -390,22 +401,25 @@ function render() {
     ctx.stroke();
   });
 
-  // Draw blocks
+  // Draw blocks (circles)
   blocks.forEach(block => {
+    // Draw circle
     ctx.fillStyle = block.color;
-    ctx.fillRect(block.x, block.y, block.width, block.height);
+    ctx.beginPath();
+    ctx.arc(block.x, block.y, block.radius, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Block border
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(block.x, block.y, block.width, block.height);
+    // Circle border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
 
     // Draw HP number
     ctx.fillStyle = '#ffffff';
-    ctx.font = `bold ${block.height * 0.5}px system-ui`;
+    ctx.font = `bold ${block.radius * 0.8}px system-ui`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(block.hp, block.x + block.width / 2, block.y + block.height / 2);
+    ctx.fillText(block.hp, block.x, block.y);
   });
 
   // Draw score

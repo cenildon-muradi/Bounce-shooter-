@@ -122,11 +122,11 @@ const BULLET_HEIGHT = 6;
 const BULLET_COOLDOWN = 150; // ms between shots (reduced for continuous shooting)
 let lastShot = 0;
 
-// Block sizes and HP (now circles with radius)
+// Block sizes and HP (now cubes with size)
 const BLOCK_SIZES = {
-  LARGE: { radius: 40, hp: 3, color: '#e74c3c' },
-  MEDIUM: { radius: 30, hp: 2, color: '#3498db' },
-  SMALL: { radius: 20, hp: 1, color: '#2ecc71' }
+  LARGE: { size: 80, hp: 3, color: '#e74c3c' },
+  MEDIUM: { size: 60, hp: 2, color: '#3498db' },
+  SMALL: { size: 40, hp: 1, color: '#2ecc71' }
 };
 
 const BLOCK_SPEED = 0.4;
@@ -197,12 +197,12 @@ function initGame() {
 
   console.log('🎮 Game initialized!');
   console.log('📱 iOS safe areas respected - optimized for notch and home bar');
-  console.log('🎯 Drag to aim and shoot continuously - large arrow shows direction!');
+  console.log('🎯 Drag to aim and shoot continuously - arrow shows direction!');
   console.log('🔫 Bullets start with 0 bounces - disappear on first wall/enemy hit!');
   console.log('⭐ Upgrade bounce to make bullets reflect on walls and enemies');
   console.log('🧱 ALL bounces (walls + enemies) consume bullet life');
-  console.log('⚫ Enemy HP scales with level: 5, 10, 15, 20...');
-  console.log('💥 Random ricochet angles off circles!');
+  console.log('🟥 Enemies are cubes with HP scaling: 5, 10, 15, 20...');
+  console.log('💥 Realistic bounce physics - angles reflect based on collision side!');
   console.log('📊 Kill enemies to fill progress bar and level up!');
   console.log('💪 Choose upgrades: Bounce, Speed (+2%), or Damage');
   console.log('💀 Elite enemies spawn when you level up!');
@@ -315,7 +315,7 @@ function shootBulletInDirection() {
   });
 }
 
-// Spawn a block (circle)
+// Spawn a block (cube)
 function spawnBlock() {
   const now = Date.now();
   if (now - lastBlockSpawn < currentSpawnInterval) return;
@@ -324,18 +324,19 @@ function spawnBlock() {
   const rect = canvas.getBoundingClientRect();
 
   // Start with large blocks
-  const size = BLOCK_SIZES.LARGE;
-  const margin = size.radius;
-  const maxX = rect.width - margin * 2;
+  const sizeConfig = BLOCK_SIZES.LARGE;
+  const margin = sizeConfig.size / 2;
+  const maxX = rect.width - sizeConfig.size;
 
   // HP scales with level: 5, 10, 15, 20, etc.
   const hp = level * 5;
 
   blocks.push({
     x: margin + Math.random() * maxX,
-    y: -size.radius,
-    radius: size.radius,
-    color: size.color,
+    y: -sizeConfig.size,
+    width: sizeConfig.size,
+    height: sizeConfig.size,
+    color: sizeConfig.color,
     hp: hp,
     maxHp: hp,
     size: 'LARGE',
@@ -347,9 +348,10 @@ function spawnBlock() {
   if (level >= 3 && Math.random() < 0.3) {
     blocks.push({
       x: margin + Math.random() * maxX,
-      y: -size.radius - 100,
-      radius: size.radius,
-      color: size.color,
+      y: -sizeConfig.size - 100,
+      width: sizeConfig.size,
+      height: sizeConfig.size,
+      color: sizeConfig.color,
       hp: hp,
       maxHp: hp,
       size: 'LARGE',
@@ -363,18 +365,19 @@ function spawnBlock() {
 function spawnEliteBlock() {
   const rect = canvas.getBoundingClientRect();
   const baseSize = BLOCK_SIZES.LARGE;
-  const eliteRadius = baseSize.radius + level * 5; // Grows with level
+  const eliteSize = baseSize.size + level * 10; // Grows with level
 
   // Elite HP: 10x level (double normal blocks)
   const eliteHP = level * 10;
 
-  const margin = eliteRadius;
-  const maxX = rect.width - margin * 2;
+  const margin = eliteSize / 2;
+  const maxX = rect.width - eliteSize;
 
   blocks.push({
     x: margin + Math.random() * maxX,
-    y: -eliteRadius,
-    radius: eliteRadius,
+    y: -eliteSize,
+    width: eliteSize,
+    height: eliteSize,
     color: '#9b59b6', // Purple for elite
     hp: eliteHP,
     maxHp: eliteHP,
@@ -394,8 +397,8 @@ function splitBlock(block) {
   const newSize = block.size === 'LARGE' ? 'MEDIUM' : 'SMALL';
   const sizeConfig = BLOCK_SIZES[newSize];
 
-  // Create two smaller circles at slight offset
-  const offset = sizeConfig.radius;
+  // Create two smaller cubes at slight offset
+  const offset = sizeConfig.size / 2;
 
   // Split HP: half of parent HP (rounded up)
   const splitHP = Math.ceil(block.maxHp / 2);
@@ -403,7 +406,8 @@ function splitBlock(block) {
   blocks.push({
     x: block.x - offset,
     y: block.y,
-    radius: sizeConfig.radius,
+    width: sizeConfig.size,
+    height: sizeConfig.size,
     color: sizeConfig.color,
     hp: splitHP,
     maxHp: splitHP,
@@ -415,7 +419,8 @@ function splitBlock(block) {
   blocks.push({
     x: block.x + offset,
     y: block.y,
-    radius: sizeConfig.radius,
+    width: sizeConfig.size,
+    height: sizeConfig.size,
     color: sizeConfig.color,
     hp: splitHP,
     maxHp: splitHP,
@@ -510,13 +515,13 @@ function update() {
     }
   }
 
-  // Update blocks (circles)
+  // Update blocks (cubes)
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];
     block.y += block.speed || currentBlockSpeed;
 
     // Check if block reached bottom (game over)
-    if (block.y - block.radius > rect.height) {
+    if (block.y > rect.height) {
       gameOver = true;
       console.log('💀 Game Over! Final score:', score);
       console.log(`📊 Reached Level ${level}, Killed ${kills + (level - 1) * (requiredKills - 5) + 10} enemies total`);
@@ -532,17 +537,44 @@ function update() {
     for (let j = blocks.length - 1; j >= 0; j--) {
       const block = blocks[j];
 
-      if (checkCircleCollision(bullet, block)) {
+      if (checkCubeCollision(bullet, block)) {
         // Reduce block HP by bullet damage
         block.hp -= bullet.damage;
 
-        // Calculate random ricochet angle
-        const randomAngle = (Math.random() - 0.5) * Math.PI; // Random angle between -90° and +90°
-        const speed = Math.sqrt(bullet.vx * bullet.vx + bullet.vy * bullet.vy);
+        // Calculate correct bounce physics based on collision side
+        const bulletCenterX = bullet.x + bullet.width / 2;
+        const bulletCenterY = bullet.y + bullet.height / 2;
+        const blockCenterX = block.x + block.width / 2;
+        const blockCenterY = block.y + block.height / 2;
 
-        // Apply random ricochet direction
-        bullet.vx = Math.sin(randomAngle) * speed;
-        bullet.vy = Math.cos(randomAngle) * speed;
+        // Calculate which side was hit
+        const dx = bulletCenterX - blockCenterX;
+        const dy = bulletCenterY - blockCenterY;
+        const width = (bullet.width + block.width) / 2;
+        const height = (bullet.height + block.height) / 2;
+        const crossWidth = width * dy;
+        const crossHeight = height * dx;
+
+        // Determine collision side and reflect accordingly
+        if (Math.abs(dx) <= width && Math.abs(dy) <= height) {
+          if (crossWidth > crossHeight) {
+            if (crossWidth > -crossHeight) {
+              // Bottom collision
+              bullet.vy = Math.abs(bullet.vy);
+            } else {
+              // Left collision
+              bullet.vx = -Math.abs(bullet.vx);
+            }
+          } else {
+            if (crossWidth > -crossHeight) {
+              // Right collision
+              bullet.vx = Math.abs(bullet.vx);
+            } else {
+              // Top collision
+              bullet.vy = -Math.abs(bullet.vy);
+            }
+          }
+        }
 
         bullet.bounces++;
 
@@ -588,17 +620,12 @@ function update() {
   }
 }
 
-// Circle collision detection
-function checkCircleCollision(bullet, block) {
-  const bulletCenterX = bullet.x + bullet.width / 2;
-  const bulletCenterY = bullet.y + bullet.height / 2;
-  const bulletRadius = bullet.width / 2;
-
-  const dx = bulletCenterX - block.x;
-  const dy = bulletCenterY - block.y;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-
-  return distance < (bulletRadius + block.radius);
+// Cube (AABB) collision detection
+function checkCubeCollision(bullet, block) {
+  return bullet.x < block.x + block.width &&
+         bullet.x + bullet.width > block.x &&
+         bullet.y < block.y + block.height &&
+         bullet.y + bullet.height > block.y;
 }
 
 // Render game
@@ -635,35 +662,35 @@ function render() {
     ctx.stroke();
   });
 
-  // Draw blocks (circles)
+  // Draw blocks (cubes)
   blocks.forEach(block => {
-    // Draw circle
+    // Draw cube (rectangle)
     ctx.fillStyle = block.color;
-    ctx.beginPath();
-    ctx.arc(block.x, block.y, block.radius, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillRect(block.x, block.y, block.width, block.height);
 
     // Elite glow effect
     if (block.isElite) {
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 5;
-      ctx.stroke();
+      ctx.strokeRect(block.x, block.y, block.width, block.height);
       ctx.strokeStyle = block.color;
       ctx.lineWidth = 3;
-      ctx.stroke();
+      ctx.strokeRect(block.x, block.y, block.width, block.height);
     } else {
-      // Circle border
+      // Cube border
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
       ctx.lineWidth = 3;
-      ctx.stroke();
+      ctx.strokeRect(block.x, block.y, block.width, block.height);
     }
 
     // Draw HP number
+    const centerX = block.x + block.width / 2;
+    const centerY = block.y + block.height / 2;
     ctx.fillStyle = '#ffffff';
-    ctx.font = `bold ${block.radius * 0.8}px system-ui`;
+    ctx.font = `bold ${Math.min(block.width, block.height) * 0.4}px system-ui`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(block.hp, block.x, block.y);
+    ctx.fillText(block.hp, centerX, centerY);
   });
 
   // Draw aiming indicator
@@ -676,25 +703,25 @@ function render() {
       const playerCenterX = player.x + player.width / 2;
       const playerCenterY = player.y + player.height / 2;
 
-      // Fixed large arrow size
-      const lineLength = 250; // Fixed length, always large
+      // Smaller arrow size (30% of original)
+      const lineLength = 75; // Was 250, now 30%
       const dirX = dx / distance;
       const dirY = dy / distance;
       const endX = playerCenterX + dirX * lineLength;
       const endY = playerCenterY + dirY * lineLength;
 
-      // Draw arrow line (thicker and more visible)
+      // Draw arrow line (thinner)
       ctx.strokeStyle = '#f39c12';
-      ctx.lineWidth = 6;
-      ctx.setLineDash([8, 8]);
+      ctx.lineWidth = 2; // Was 6, now ~30%
+      ctx.setLineDash([5, 5]); // Was [8,8], now smaller
       ctx.beginPath();
       ctx.moveTo(playerCenterX, playerCenterY);
       ctx.lineTo(endX, endY);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Draw large arrow head
-      const arrowSize = 25; // Larger arrow
+      // Draw smaller arrow head
+      const arrowSize = 8; // Was 25, now ~30%
       const angle = Math.atan2(dirY, dirX);
       ctx.fillStyle = '#f39c12';
       ctx.beginPath();
@@ -709,12 +736,6 @@ function render() {
       );
       ctx.closePath();
       ctx.fill();
-
-      // Draw glow around arrow head for better visibility
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = '#f39c12';
-      ctx.fill();
-      ctx.shadowBlur = 0;
     }
   }
 

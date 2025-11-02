@@ -90,10 +90,10 @@ const bullets = [];
 const blocks = [];
 
 // Game config
-const BASE_BULLET_SPEED = 3.5;
+const BASE_BULLET_SPEED = 7;
 const BULLET_WIDTH = 6;
 const BULLET_HEIGHT = 6;
-const BULLET_COOLDOWN = 300; // ms between shots
+const BULLET_COOLDOWN = 150; // ms between shots (reduced for continuous shooting)
 const MAX_BOUNCES = 3;
 let lastShot = 0;
 
@@ -168,8 +168,8 @@ function initGame() {
   aimCurrentY = 0;
 
   console.log('🎮 Game initialized!');
-  console.log('🎯 Drag to aim and release to shoot!');
-  console.log('🔫 Bullets ricochet up to 3 times');
+  console.log('🎯 Drag to aim and shoot continuously!');
+  console.log('🔫 Bullets ricochet up to 3 times - change direction on the fly!');
   console.log('⚫ Circles: Large (HP:3) → Medium (HP:2) → Small (HP:1)');
   console.log('💥 Random ricochet angles off circles!');
   console.log('📊 Kill enemies to fill progress bar and level up!');
@@ -212,8 +212,7 @@ function handleTouchEnd(e) {
   if (!isAiming) return;
   e.preventDefault();
 
-  // Shoot in the aimed direction
-  shootBulletInDirection();
+  // Stop aiming
   isAiming = false;
 }
 
@@ -244,8 +243,7 @@ function handleMouseUp(e) {
   if (!isAiming) return;
   e.preventDefault();
 
-  // Shoot in the aimed direction
-  shootBulletInDirection();
+  // Stop aiming
   isAiming = false;
 }
 
@@ -450,7 +448,10 @@ function update() {
 
   const rect = canvas.getBoundingClientRect();
 
-  // Player stays centered, shoots on aim release
+  // Continuous shooting while aiming
+  if (isAiming) {
+    shootBulletInDirection();
+  }
 
   // Spawn blocks
   spawnBlock();

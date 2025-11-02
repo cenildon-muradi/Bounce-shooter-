@@ -79,6 +79,13 @@ const player = {
   moveRight: false
 };
 
+// Aiming system
+let aimStartX = 0;
+let aimStartY = 0;
+let aimCurrentX = 0;
+let aimCurrentY = 0;
+let isAiming = false;
+
 const bullets = [];
 const blocks = [];
 
@@ -154,10 +161,15 @@ function initGame() {
   blocks.length = 0;
   currentBlockSpeed = BLOCK_SPEED;
   currentSpawnInterval = BLOCK_SPAWN_INTERVAL;
+  isAiming = false;
+  aimStartX = 0;
+  aimStartY = 0;
+  aimCurrentX = 0;
+  aimCurrentY = 0;
 
   console.log('🎮 Game initialized!');
-  console.log('📱 Drag to move platform - follows your finger!');
-  console.log('🔫 Auto-shoots bullets that ricochet up to 3 times');
+  console.log('🎯 Drag to aim and release to shoot!');
+  console.log('🔫 Bullets ricochet up to 3 times');
   console.log('⚫ Circles: Large (HP:3) → Medium (HP:2) → Small (HP:1)');
   console.log('💥 Random ricochet angles off circles!');
   console.log('📊 Kill enemies to fill progress bar and level up!');
@@ -167,81 +179,128 @@ function initGame() {
   requestAnimationFrame(gameLoop);
 }
 
-// Touch handling - drag to move
+// Touch handling - drag to aim
 let isDragging = false;
 
 function handleTouchStart(e) {
+  // Don't interfere with upgrade menu or game over
+  if (showUpgradeMenu || gameOver) return;
+
   e.preventDefault();
-  isDragging = true;
   const touch = e.touches[0];
   const rect = canvas.getBoundingClientRect();
-  updatePlayerPosition(touch.clientX - rect.left);
+
+  isAiming = true;
+  aimStartX = touch.clientX - rect.left;
+  aimStartY = touch.clientY - rect.top;
+  aimCurrentX = aimStartX;
+  aimCurrentY = aimStartY;
 }
 
 function handleTouchMove(e) {
+  if (!isAiming) return;
   e.preventDefault();
-  if (!isDragging) return;
+
   const touch = e.touches[0];
   const rect = canvas.getBoundingClientRect();
-  updatePlayerPosition(touch.clientX - rect.left);
+
+  aimCurrentX = touch.clientX - rect.left;
+  aimCurrentY = touch.clientY - rect.top;
 }
 
 function handleTouchEnd(e) {
+  if (!isAiming) return;
   e.preventDefault();
-  isDragging = false;
+
+  // Shoot in the aimed direction
+  shootBulletInDirection();
+  isAiming = false;
 }
 
 function handleMouseDown(e) {
+  // Don't interfere with upgrade menu or game over
+  if (showUpgradeMenu || gameOver) return;
+
   e.preventDefault();
-  isDragging = true;
   const rect = canvas.getBoundingClientRect();
-  updatePlayerPosition(e.clientX - rect.left);
+
+  isAiming = true;
+  aimStartX = e.clientX - rect.left;
+  aimStartY = e.clientY - rect.top;
+  aimCurrentX = aimStartX;
+  aimCurrentY = aimStartY;
 }
 
 function handleMouseMove(e) {
+  if (!isAiming) return;
   e.preventDefault();
-  if (!isDragging) return;
+
   const rect = canvas.getBoundingClientRect();
-  updatePlayerPosition(e.clientX - rect.left);
+  aimCurrentX = e.clientX - rect.left;
+  aimCurrentY = e.clientY - rect.top;
 }
 
 function handleMouseUp(e) {
+  if (!isAiming) return;
   e.preventDefault();
-  isDragging = false;
+
+  // Shoot in the aimed direction
+  shootBulletInDirection();
+  isAiming = false;
 }
 
-function updatePlayerPosition(x) {
-  const rect = canvas.getBoundingClientRect();
-  // Center player on touch position
-  player.x = x - player.width / 2;
-  // Keep player within bounds
-  player.x = Math.max(0, Math.min(rect.width - player.width, player.x));
-}
-
-// Spawn a bullet
-function shootBullet() {
+// Shoot bullet in aimed direction
+function shootBulletInDirection() {
   const now = Date.now();
   if (now - lastShot < BULLET_COOLDOWN) return;
 
+  // Calculate direction from player center to aim point
+  const rect = canvas.getBoundingClientRect();
+  const playerCenterX = player.x + player.width / 2;
+  const playerCenterY = player.y + player.height / 2;
+
+  const dx = aimCurrentX - aimStartX;
+  const dy = aimCurrentY - aimStartY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  // Minimum drag distance to shoot
+  if (distance < 10) return;
+
   lastShot = now;
   const bulletSpeed = BASE_BULLET_SPEED * bulletSpeedMultiplier;
+
+  // Normalize direction
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+
   const numProjectiles = 1 + extraProjectiles;
 
   // Shoot multiple projectiles
   for (let i = 0; i < numProjectiles; i++) {
-    const offsetX = numProjectiles > 1 ? (i - (numProjectiles - 1) / 2) * 15 : 0;
+    // For multiple projectiles, spread them in a cone
+    let finalDirX = dirX;
+    let finalDirY = dirY;
+
+    if (numProjectiles > 1) {
+      const spreadAngle = (i - (numProjectiles - 1) / 2) * 0.2; // Spread angle in radians
+      const angle = Math.atan2(dirY, dirX) + spreadAngle;
+      finalDirX = Math.cos(angle);
+      finalDirY = Math.sin(angle);
+    }
 
     bullets.push({
-      x: player.x + player.width / 2 - BULLET_WIDTH / 2 + offsetX,
-      y: player.y,
+      x: playerCenterX - BULLET_WIDTH / 2,
+      y: playerCenterY - BULLET_HEIGHT / 2,
       width: BULLET_WIDTH,
       height: BULLET_HEIGHT,
-      vx: 0, // horizontal velocity
-      vy: -bulletSpeed, // vertical velocity (up)
+      vx: finalDirX * bulletSpeed,
+      vy: finalDirY * bulletSpeed,
       bounces: 0,
       damage: bulletDamage
     });
   }
+
+  console.log(`🎯 Shot at direction: (${dirX.toFixed(2)}, ${dirY.toFixed(2)})`);
 }
 
 // Spawn a block (circle)
@@ -391,10 +450,7 @@ function update() {
 
   const rect = canvas.getBoundingClientRect();
 
-  // Player is controlled by drag, no need to update here
-
-  // Auto-shoot
-  shootBullet();
+  // Player stays centered, shoots on aim release
 
   // Spawn blocks
   spawnBlock();
@@ -574,6 +630,60 @@ function render() {
     ctx.textBaseline = 'middle';
     ctx.fillText(block.hp, block.x, block.y);
   });
+
+  // Draw aiming indicator
+  if (isAiming && !gameOver && !gamePaused) {
+    const dx = aimCurrentX - aimStartX;
+    const dy = aimCurrentY - aimStartY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance > 10) {
+      const playerCenterX = player.x + player.width / 2;
+      const playerCenterY = player.y + player.height / 2;
+
+      // Draw line from player to aim direction
+      const maxLineLength = 150;
+      const lineLength = Math.min(distance, maxLineLength);
+      const dirX = dx / distance;
+      const dirY = dy / distance;
+      const endX = playerCenterX + dirX * lineLength;
+      const endY = playerCenterY + dirY * lineLength;
+
+      // Draw arrow line
+      ctx.strokeStyle = '#f39c12';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(playerCenterX, playerCenterY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw arrow head
+      const arrowSize = 15;
+      const angle = Math.atan2(dirY, dirX);
+      ctx.fillStyle = '#f39c12';
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(
+        endX - arrowSize * Math.cos(angle - Math.PI / 6),
+        endY - arrowSize * Math.sin(angle - Math.PI / 6)
+      );
+      ctx.lineTo(
+        endX - arrowSize * Math.cos(angle + Math.PI / 6),
+        endY - arrowSize * Math.sin(angle + Math.PI / 6)
+      );
+      ctx.closePath();
+      ctx.fill();
+
+      // Draw power indicator
+      const power = Math.min(100, (distance / 2));
+      ctx.fillStyle = '#f39c12';
+      ctx.font = 'bold 16px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(power)}%`, playerCenterX, playerCenterY - 30);
+    }
+  }
 
   // Draw progress bar at top
   const barHeight = 30;
